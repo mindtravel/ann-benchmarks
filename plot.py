@@ -77,13 +77,16 @@ def create_plot(all_data, raw, x_scale, y_scale, xn, yn, fn_out, linestyles, bat
     plt.setp(ax.get_xminorticklabels(), visible=True)
 
     # Logit scale has to be a subset of (0,1)
-    if "lim" in xm and x_scale != "logit":
-        x0, x1 = xm["lim"]
-        plt.xlim(max(x0, 0), min(x1, 1))
-    elif x_scale == "logit":
-        plt.xlim(min_x, max_x)
-    if "lim" in ym:
-        plt.ylim(ym["lim"])
+    # if "lim" in xm and x_scale != "logit":
+    #     x0, x1 = xm["lim"]
+    #     plt.xlim(max(x0, 0), min(x1, 1))
+    # elif x_scale == "logit":
+    #     plt.xlim(min_x, max_x)
+    # if "lim" in ym:
+    #     plt.ylim(ym["lim"])
+    # plt.xlim(0.2, 1-1e-5)
+    plt.xlim(0.2, 1)
+    plt.ylim(5,1e4)
 
     # Workaround for bug https://github.com/matplotlib/matplotlib/issues/6789
     ax.spines["bottom"]._adjust_location()

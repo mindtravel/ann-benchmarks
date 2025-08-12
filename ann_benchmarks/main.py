@@ -320,7 +320,7 @@ def main():
         base_dir=args.definitions,
     )
     random.shuffle(definitions)
-    print("definitions:", args.definitions)
+    # print("definitions:", args.definitions)
 
 
     definitions = filter_already_run_definitions(definitions, 
@@ -330,6 +330,7 @@ def main():
         force=args.force,
     )
 
+    # print(definitions)
     if args.algorithm:
         logger.info(f"running only {args.algorithm}")
         definitions = [d for d in definitions if d.algorithm == args.algorithm]
