@@ -17,3 +17,5 @@ make OPTFLAGS="$OPTFLAGS" && \
 make install
 
 pip install psycopg[binary] pgvector
+
+sudo sed -i 's/local.*postgres.*peer/local all postgres trust/' /etc/postgresql/16/main/pg_hba.conf

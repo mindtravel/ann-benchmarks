@@ -10,4 +10,4 @@ float:
       lists-10:
         arg_groups: [{lists: 100}]
         args: {}
-        query_args: [[1, 5, 10, 20, 40, 80, 100, 200]]
+        query_args: [[1, 5, 10, 20, 40]]
