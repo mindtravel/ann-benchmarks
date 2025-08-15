@@ -37,3 +37,5 @@ python run.py --local --algorithm pgvector_ivfflat --batch --force --runs 1
 
 echo "原版pgvector测试完成"
 
+
+

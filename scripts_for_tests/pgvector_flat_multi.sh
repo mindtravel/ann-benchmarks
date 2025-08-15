@@ -16,8 +16,8 @@ sudo service postgresql restart
 
 # 步骤3: 设置PostgreSQL多线程参数
 echo "3: 配置PostgreSQL多线程参数..."
-sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 8;"
-sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers = 16;"
+sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 20;"
+sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers = 20;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET parallel_tuple_cost = 0.1;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET parallel_setup_cost = 1000.0;"
 sudo -u postgres psql -d ann -c "SELECT pg_reload_conf();"
@@ -31,7 +31,10 @@ export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
 # 使用多进程运行测试
-python run.py --local --algorithm pgvector_ivfflat_multi_ours --batch --force --runs 1
+# python run.py --local --algorithm pgvector_ivfflat_multi_ours --batch --force --runs 1
+python run.py --local --algorithm pgvector_ivfflat_multi_ours --force --runs 1
 
 echo "多卡多线程pgvector测试完成"
+
+
 
