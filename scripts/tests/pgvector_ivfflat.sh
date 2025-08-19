@@ -6,7 +6,19 @@ echo "=== 恢复原版pgvector扩展并测试 ==="
 # 步骤1: 恢复原版pgvector扩展
 echo "1: 恢复原版pgvector扩展..."
 # sudo apt-get update
-sudo apt-get install -y postgresql-16-pgvector
+# sudo apt-get install -y postgresql-16-pgvector
+ARCH=$(uname -m) && \
+if [ "$ARCH" = "aarch64" ]; then \
+    OPTFLAGS="-march=native -msve-vector-bits=512"; \
+elif [ "$ARCH" = "x86_64" ]; then \
+    OPTFLAGS="-march=native -mprefer-vector-width=512"; \
+else \
+    OPTFLAGS="-march=native"; \
+fi && \
+cd /tmp/pgvector && \
+make clean && \
+make OPTFLAGS="$OPTFLAGS" && \
+make install
 
 # 步骤2: 重启PostgreSQL服务
 echo "2: 重启PostgreSQL服务..."
@@ -27,7 +39,7 @@ export ANN_BENCHMARKS_PG_PASSWORD=
 export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
-python run.py --local --algorithm pgvector_ivfflat_multi_ours --batch --force --runs 1
+python run.py --local --algorithm pgvector_ivfflat_multi --batch --force --runs 1
 # python run.py --local --algorithm pgvector_ivfflat --batch --force --runs 1
 
 echo "原版pgvector测试完成"
