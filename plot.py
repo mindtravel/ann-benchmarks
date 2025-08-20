@@ -86,7 +86,7 @@ def create_plot(all_data, raw, x_scale, y_scale, xn, yn, fn_out, linestyles, bat
     #     plt.ylim(ym["lim"])
     # plt.xlim(0.2, 1-1e-5)
     plt.xlim(0.2, 1)
-    plt.ylim(5,1e4)
+    plt.ylim(5,1e6)
 
     # Workaround for bug https://github.com/matplotlib/matplotlib/issues/6789
     ax.spines["bottom"]._adjust_location()
