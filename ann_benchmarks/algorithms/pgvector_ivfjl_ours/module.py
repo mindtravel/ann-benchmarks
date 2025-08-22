@@ -209,10 +209,10 @@ class IndexingProgressMonitor:
             print("    Detailed breakdown of indexing time not available.")
 
 
-class PGVectorIVFFlatMulti(BaseANN):
+class PGVectorIVFJLOurs(BaseANN):
     def __init__(self, metric, method_param):
         self._metric = metric
-        self._lists = method_param['lists']  # Number of lists for IVFFlat
+        self._lists = 0 # Number of lists for IVFJL
         self._num_workers = method_param.get('num_workers', 4)  # 线程池大小
         self._batch_size = method_param.get('batch_size', 5000)  # 批处理大小
         self._use_gpu = method_param.get('use_gpu', False)  # 是否使用GPU
@@ -310,7 +310,7 @@ class PGVectorIVFFlatMulti(BaseANN):
             self._return_connection(conn)
 
     def fit(self, dataset):
-        if dataset.shape[0] > 1000 000:
+        if dataset.shape[0] > 1000000:
             self._lists = int(np.sqrt(dataset.shape[0]))
         else:
             self._lists = int(dataset.shape[0]/1000)
@@ -373,7 +373,7 @@ class PGVectorIVFFlatMulti(BaseANN):
         sys.stdout.flush()
         cur.execute("SET maintenance_work_mem = '2GB'")
         create_index_str = \
-            "CREATE INDEX ON items USING ivfflat (embedding vector_%s_ops) " \
+            "CREATE INDEX ON items USING ivfjl (embedding vector_%s_ops) " \
             "WITH (lists = %d)" % (
                 self.get_metric_properties()["ops_type"],
                 self._lists
@@ -474,4 +474,4 @@ class PGVectorIVFFlatMulti(BaseANN):
                 pass
 
     def __str__(self):
-        return f"PGVectorIVFFlatMulti(lists={self._lists}, probes={self._probes}, workers={self._num_workers})"
+        return f"PGVectorIVFJLOurs(lists={self._lists}, probes={self._probes}, workers={self._num_workers})"
