@@ -1,19 +1,9 @@
 !/bin/bash
+# ours pgvector测试脚本
+echo "ours pgvector测试开始..."
 
-# 多卡多线程pgvector测试脚本
-echo "多卡多线程pgvector测试开始..."
-
-# 步骤1: 编译pgvector
-echo "1: 编译pgvector..."
-cd /home/zhangyi/pgvector
-# g++ -std=c++17 -I/usr/include/postgresql -o cpp/vector_search cpp/parallel_flat.cpp -lpq
-make
-cd /home/zongxi/ann-benchmarks
-
-# 步骤2: 替换PostgreSQL扩展
-echo "2: 替换pgvector扩展..."
-sudo cp /home/zhangyi/pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
-sudo service postgresql restart
+./scripts/tests/compile.sh ours
+# ./scripts/tests/compile.sh baseline
 
 # 步骤3: 设置PostgreSQL多线程参数
 echo "3: 配置PostgreSQL多线程参数..."
@@ -32,8 +22,8 @@ export ANN_BENCHMARKS_PG_START_SERVICE=false
 
 # 使用多进程运行测试
 # python run.py --local --algorithm pgvector_ivfflat_multi_ours --batch --force --runs 1
-python run.py --local --algorithm pgvector_ivfflat_multi_ours --force --runs 1
+python run.py --local --algorithm pgvector_ivfjl_ours --dataset glove-100-angular --force --runs 1 --batch
 
-echo "多卡多线程pgvector测试完成"
+echo "ours pgvector测试完成"
 
 

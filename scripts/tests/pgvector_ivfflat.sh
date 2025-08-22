@@ -3,27 +3,7 @@
 # 恢复原版pgvector扩展并测试脚本
 echo "=== 恢复原版pgvector扩展并测试 ==="
 
-# # 步骤1: 恢复原版pgvector扩展
-# echo "1: 恢复原版pgvector扩展..."
-# # sudo apt-get update
-# # sudo apt-get install -y postgresql-16-pgvector
-# ARCH=$(uname -m) && \
-# if [ "$ARCH" = "aarch64" ]; then \
-#     OPTFLAGS="-march=native -msve-vector-bits=512"; \
-# elif [ "$ARCH" = "x86_64" ]; then \
-#     OPTFLAGS="-march=native -mprefer-vector-width=512"; \
-# else \
-#     OPTFLAGS="-march=native"; \
-# fi && \
-# cd /tmp/pgvector && \
-# make clean && \
-# make OPTFLAGS="$OPTFLAGS" && \
-# make install
-# cd /home/zongxi/ann-benchmarks
-
-# 步骤2: 重启PostgreSQL服务
-echo "2: 重启PostgreSQL服务..."
-sudo service postgresql restart
+./scripts/tests/compile.sh baseline
 
 # 步骤3: 验证原版扩展
 echo "3: 验证原版扩展..."
