@@ -251,6 +251,11 @@ class PGVectorIVFFlat(BaseANN):
                 cur.execute("CREATE EXTENSION vector")
 
     def fit(self, dataset):
+        if dataset.shape[0] > 1000 000:
+            self._lists = int(np.sqrt(dataset.shape[0]))
+        else:
+            self._lists = int(dataset.shape[0]/1000)
+        
         psycopg_connect_kwargs: Dict[str, Any] = dict(
             autocommit=True,
         )

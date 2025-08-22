@@ -124,7 +124,10 @@ class CuvsIVFPQ(BaseANN):
 
 
     def fit(self, dataset):
-        self._lists = int(np.sqrt(dataset.shape[0]))
+        if dataset.shape[0] > 1000 000:
+            self._lists = int(np.sqrt(dataset.shape[0]))
+        else:
+            self._lists = int(dataset.shape[0]/1000)
         # 构建 cuVS 索引
         self._build_cuvs_index(dataset)
         print("cuVS GPU acceleration initialized")
