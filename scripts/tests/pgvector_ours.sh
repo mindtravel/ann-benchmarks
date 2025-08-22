@@ -1,4 +1,4 @@
-!/bin/bash
+# !/bin/bash
 # ours pgvector测试脚本
 echo "ours pgvector测试开始..."
 
@@ -7,6 +7,7 @@ echo "ours pgvector测试开始..."
 
 # 步骤3: 设置PostgreSQL多线程参数
 echo "3: 配置PostgreSQL多线程参数..."
+
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 20;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers = 20;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET parallel_tuple_cost = 0.1;"
