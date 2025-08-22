@@ -1,11 +1,11 @@
 float:
   any:
   - base_args: ['@metric']
-    constructor: PGVectorIVFFlat_CuvsIVFFlat
+    constructor: CuvsIVFPQ
     disabled: false
-    docker_tag: ann-benchmarks-pgvector_ivfflat_cuvs_ivfflat
-    module: ann_benchmarks.algorithms.pgvector_ivfflat_cuvs_ivfflat
-    name: pgvector_ivfflat_cuvs_ivfflat
+    docker_tag: ann-benchmarks-cuvs_ivfpq
+    module: ann_benchmarks.algorithms.cuvs_ivfpq
+    name: cuvs_ivfpq
     run_groups:
       # 固定配置：lists=100, workers=20, gpu=true
       lists-100-workers-20-gpu:

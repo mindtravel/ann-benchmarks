@@ -310,6 +310,8 @@ class PGVectorIVFFlatMulti(BaseANN):
             self._return_connection(conn)
 
     def fit(self, dataset):
+        self._lists = int(np.sqrt(dataset.shape[0]))
+        
         psycopg_connect_kwargs: Dict[str, Any] = dict(
             autocommit=True,
         )
@@ -366,6 +368,7 @@ class PGVectorIVFFlatMulti(BaseANN):
 
         print("creating index...")
         sys.stdout.flush()
+        cur.execute("SET maintenance_work_mem = '2GB'")
         create_index_str = \
             "CREATE INDEX ON items USING ivfflat (embedding vector_%s_ops) " \
             "WITH (lists = %d)" % (
@@ -468,4 +471,4 @@ class PGVectorIVFFlatMulti(BaseANN):
                 pass
 
     def __str__(self):
-        return f"PGVectorMulti(lists={self._lists}, probes={self._probes}, workers={self._num_workers})"
+        return f"PGVectorIVFFlatMulti(lists={self._lists}, probes={self._probes}, workers={self._num_workers})"

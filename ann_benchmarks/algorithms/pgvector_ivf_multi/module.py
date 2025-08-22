@@ -21,7 +21,7 @@ to "false" (or e.g. "0" or "no") in order to disable this behavior.
 This module will also attempt to create the pgvector extension inside the
 target database, if it has not been already created.
 
-Enhanced with cuVS optimization for GPU-accelerated vector operations.
+This is a multi-threaded version that uses thread pools for parallel query processing.
 """
 
 import os
@@ -29,14 +29,13 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
 import numpy as np
+import random
 
 import pgvector.psycopg
 import psycopg
-
-# 添加 cuvs 相关导入
-from cuvs.neighbors import ivf_pq
-import cupy
 
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -53,12 +52,6 @@ METRIC_PROPERTIES = {
         "distance_operator": "<->",
         "ops_type": "l2",
     }
-}
-
-# cuVS 距离度量映射 ?真的有用吗
-CUVS_METRIC_MAP = {
-    "angular": "cosine",
-    "euclidean": "euclidean"
 }
 
 
@@ -217,19 +210,32 @@ class IndexingProgressMonitor:
             print("    Detailed breakdown of indexing time not available.")
 
 
-class PGVectorIVFFlat_CuvsIVFPQ(BaseANN):
+class PGVectorIVFMulti(BaseANN):
     def __init__(self, metric, method_param):
-        self._metric = metric
-        self._lists = method_param['lists']  # Number of lists for IVFFlat
+        self._lists = method_param['lists']  # Number of lists for IVF
+        self._num_workers = method_param.get('num_workers', 4)  # 线程池大小
         self._batch_size = method_param.get('batch_size', 5000)  # 批处理大小
         self._cur = None
-        self._conn = None
+        self._index_type = method_param.get('index_type', 'flat')  # choice=["flat", "jl", pq"]
         
-        # cuVS 相关属性
-        self._cuvs_index = None
-        self._cuvs_vectors = None
-        self._cuvs_ids = None
-        self._vector_dim = None
+        if self._index_type == 'jl':
+            self._metric = 'euclidean'
+        else:
+            self._metric = metric
+            
+        self._target_dim = method_param.get('target_dim', 64)  # JL降维目标维度
+        self._enable_reordering = method_param.get('enable_reordering', False)  # 是否启用重排序
+        self._candidate_multiplier = method_param.get('candidate_multiplier', 10)  # 候选向量倍数
+        
+        self._conn = None
+        self._thread_pool = None
+        self._connection_pool = Queue()
+        self._lock = threading.Lock()
+        
+        # JL相关属性
+        self._projection_matrix = None
+        self._original_dataset = None
+        self._original_dim = None
 
         if metric == "angular":
             self._query = "SELECT id FROM items ORDER BY embedding <=> %s LIMIT %s"
@@ -292,69 +298,122 @@ class PGVectorIVFFlat_CuvsIVFPQ(BaseANN):
         pgvector.psycopg.register_vector(conn)
         return conn
 
+    def _get_connection(self) -> psycopg.Connection:
+        """从连接池获取连接"""
+        try:
+            return self._connection_pool.get_nowait()
+        except:
+            return self._create_connection()
 
+    def _return_connection(self, conn: psycopg.Connection) -> None:
+        """将连接返回到连接池"""
+        try:
+            self._connection_pool.put_nowait(conn)
+        except:
+            conn.close()
 
-    def _build_cuvs_index(self, dataset: np.ndarray) -> None:
-        """构建 cuVS 索引"""
-        print("Building cuVS index for GPU acceleration...")
-        self._vector_dim = dataset.shape[1]
-        self._cuvs_vectors = dataset.astype(np.float32)
-        self._cuvs_ids = np.arange(len(dataset))
+    def _generate_jl_projection_matrix(self, original_dim: int, target_dim: int) -> np.ndarray:
+        """
+        生成JL随机投影矩阵
+        使用稀疏三值分布：{-1, 0, +1}，概率分别为{1/6, 2/3, 1/6}
+        """
+        print(f"Generating JL projection matrix: {original_dim} -> {target_dim}")
         
-        # 构建 cuVS IVF-PQ 索引
-        cuvs_metric = CUVS_METRIC_MAP.get(self._metric, "euclidean")
-        index_params = ivf_pq.IndexParams(n_lists=self._lists, metric=cuvs_metric)
-        self._cuvs_index = ivf_pq.build(index_params, self._cuvs_vectors)
-        print(f"cuVS IVF-PQ index built with {self._lists} lists")
+        # 设置随机种子以确保可重复性
+        np.random.seed(42)
+        
+        # 生成随机数
+        r = np.random.random((original_dim, target_dim))
+        
+        # 应用三值分布
+        projection = np.zeros((original_dim, target_dim))
+        projection[r < 1/6] = -1.0
+        projection[r > 5/6] = 1.0
+        
+        return projection
 
-    def _cuvs_search(self, query_vector: np.ndarray, k: int) -> List[int]:
-        """使用 cuVS 执行单个查询"""
-        if self._cuvs_index is None:
-            raise RuntimeError("cuVS index not available")
-            
-        # 将查询向量转换为 GPU 数组
-        query_gpu = cupy.asarray(np.array([query_vector], dtype=np.float32))
+    def _apply_jl_reduction(self, data: np.ndarray) -> np.ndarray:
+        """
+        应用JL降维
+        """
+        if self._projection_matrix is None:
+            raise RuntimeError("Projection matrix not initialized")
         
-        # 执行搜索
-        search_params = ivf_pq.SearchParams(n_probes=self._probes)
-        distances, indices = ivf_pq.search(search_params, self._cuvs_index, query_gpu, k)
-        
-        # 转换回 CPU
-        indices_cpu = cupy.asnumpy(indices)
-        
-        # 返回对应的 ID
-        result_ids = [self._cuvs_ids[idx] for idx in indices_cpu[0]]
-        return result_ids
+        # 执行矩阵乘法进行降维
+        reduced_data = data @ self._projection_matrix
+        return reduced_data
 
-    def _cuvs_batch_search(self, query_vectors: np.ndarray, k: int) -> List[List[int]]:
-        """使用 cuVS 执行批量查询 - 真正的 GPU 批量处理"""
-        if self._cuvs_index is None:
-            raise RuntimeError("cuVS index not available")
-            
-        print(f"Performing cuVS batch search for {len(query_vectors)} queries...")
-        
-        # 将查询向量转换为 GPU 数组
-        queries_gpu = cupy.asarray(query_vectors.astype(np.float32))
-        
-        # 执行批量搜索
-        search_params = ivf_pq.SearchParams(n_probes=self._probes)
-        distances, indices = ivf_pq.search(search_params, self._cuvs_index, queries_gpu, k)
-        
-        # 转换回 CPU
-        indices_cpu = cupy.asnumpy(indices)
-        
-        # 返回对应的 ID 列表
-        results = []
-        for i in range(len(query_vectors)):
-            result_ids = [self._cuvs_ids[idx] for idx in indices_cpu[i]]
-            results.append(result_ids)
-        
-        print(f"Batch search completed for {len(query_vectors)} queries")
-        return results
+    def _normalize_vectors(self, data: np.ndarray) -> np.ndarray:
+        """
+        对向量进行L2标准化
+        """
+        norms = np.linalg.norm(data, axis=1, keepdims=True)
+        print(f"normalize: {data.shape}, {norms.shape}")
 
+        # 避免除零
+        norms = np.where(norms < 1e-8, 1.0, norms)
+        # print(data[0], norms[0], data[0] / norms[0])
+        return data / norms
 
+    def _query_worker(self, args: Tuple[np.ndarray, int, int]) -> Tuple[int, List[int]]:
+        """工作线程函数，执行单个查询"""
+        vector, n, query_id = args
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(self._query, (vector, n), binary=True, prepare=True)
+                result = [id for id, in cur.fetchall()]
+                return query_id, result
+        finally:
+            self._return_connection(conn)
+
+    def _query_worker_with_reordering(self, args: Tuple[np.ndarray, np.ndarray, int, int]) -> Tuple[int, List[int]]:
+        """带重排序的工作线程函数"""
+        original_vector, reduced_vector, n, query_id = args
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                # 获取更多候选向量
+                candidate_n = n * self._candidate_multiplier
+                cur.execute(self._query, (reduced_vector, candidate_n), binary=True, prepare=True)
+                candidates = [id for id, in cur.fetchall()]
+                print(candidates)
+                
+                # 重排序：使用原始高维向量计算距离
+                reordered_candidates = []
+                for candidate_id in candidates:# self._metric = "euclidean"
+                    # 计算原始高维空间中的距离
+                    distance = np.linalg.norm(original_vector - self._original_dataset[candidate_id])
+                    reordered_candidates.append((candidate_id, distance))
+                
+                # 按距离排序并取前n个
+                print(f"before:{reordered_candidates}")
+                reordered_candidates.sort(key=lambda x: x[1])
+                print(reordered_candidates)
+                
+                result = [id for id, _ in reordered_candidates[:n]]
+                return query_id, result
+        finally:
+            self._return_connection(conn)
 
     def fit(self, dataset):
+        self._original_dataset = dataset.copy()
+        self._original_dim = dataset.shape[1]
+        
+        # 根据索引类型处理数据
+        if self._index_type == 'jl':
+            print(f"Applying JL dimensionality reduction: {self._original_dim} -> {self._target_dim}")
+            
+            # 生成投影矩阵
+            self._projection_matrix = self._generate_jl_projection_matrix(self._original_dim, self._target_dim)
+            
+            # 降维+标准化
+            dataset = self._apply_jl_reduction(dataset)
+            dataset = self._normalize_vectors(dataset)
+            
+        else:
+            self._target_dim = self._original_dim
+
         psycopg_connect_kwargs: Dict[str, Any] = dict(
             autocommit=True,
         )
@@ -394,7 +453,7 @@ class PGVectorIVFFlat_CuvsIVFPQ(BaseANN):
         pgvector.psycopg.register_vector(self._conn)
         cur = self._conn.cursor()
         cur.execute("DROP TABLE IF EXISTS items")
-        cur.execute("CREATE TABLE items (id int, embedding vector(%d))" % dataset.shape[1])
+        cur.execute("CREATE TABLE items (id int, embedding vector(%d))" % self._target_dim)
         cur.execute("ALTER TABLE items ALTER COLUMN embedding SET STORAGE PLAIN")
         print("copying data...")
         sys.stdout.flush()
@@ -428,21 +487,125 @@ class PGVectorIVFFlat_CuvsIVFPQ(BaseANN):
         progress_monitor.report_timings()
         self._cur = cur
 
-        # 构建 cuVS 索引
-        self._build_cuvs_index(dataset)
-        print("cuVS GPU acceleration initialized")
+        # 初始化线程池和连接池
+        print(f"Initializing thread pool with {self._num_workers} workers")
+        self._thread_pool = ThreadPoolExecutor(max_workers=self._num_workers)
+        
+        for _ in range(self._num_workers):
+            conn = self._create_connection()
+            self._connection_pool.put(conn)
 
     def set_query_arguments(self, probes):
         self._probes = probes
-        print(f"Set cuVS search probes to {probes}")
+        # 为所有连接设置probes参数
+        connections = []
+        while not self._connection_pool.empty():
+            try:
+                conn = self._connection_pool.get_nowait()
+                connections.append(conn)
+            except:
+                break
+        
+        for conn in connections:
+            with conn.cursor() as cur:
+                cur.execute("SET ivfflat.probes = %d" % probes)
+            self._connection_pool.put(conn)
 
     def query(self, v, n):
-        """单次查询，使用 cuVS GPU 加速"""
-        return self._cuvs_search(v, n)
+        """单次查询"""
+        if self._index_type == 'jl':
+            v_reduced = self._apply_jl_reduction(v.reshape(1, -1)).flatten()
+            v_reduced = self._normalize_vectors(v_reduced.reshape(1, -1)).flatten()
+            
+            if self._enable_reordering:
+                # 带重排序的查询
+                return self._query_with_reordering(v, v_reduced, n)
+            else:
+                # 直接使用降维向量查询
+                self._cur.execute(self._query, (v_reduced, n), binary=True, prepare=True)
+                return [id for id, in self._cur.fetchall()]
+        else:
+            # 原始查询
+            self._cur.execute(self._query, (v, n), binary=True, prepare=True)
+            return [id for id, in self._cur.fetchall()]
+
+    def _query_with_reordering(self, original_vector, reduced_vector, n):
+        """带重排序的查询"""
+        # 获取更多候选向量
+        candidate_n = n * self._candidate_multiplier
+        self._cur.execute(self._query, (reduced_vector, candidate_n), binary=True, prepare=True)
+        candidates = [id for id, in self._cur.fetchall()]
+        
+        # 重排序：使用原始高维向量计算距离
+        reordered_candidates = []
+        for candidate_id in candidates:# self._metric = "euclidean"
+            # 计算原始高维空间中的距离
+            distance = np.linalg.norm(original_vector - self._original_dataset[candidate_id])
+            reordered_candidates.append((candidate_id, distance))
+        
+        # 按距离排序并取前n个
+        reordered_candidates.sort(key=lambda x: x[1])
+        
+        return [id for id, _ in reordered_candidates[:n]]
 
     def batch_query(self, X, n):
-        """执行批量查询，使用 cuVS GPU 加速"""
-        self._batch_results = self._cuvs_batch_search(X, n)
+        """执行批量查询，使用线程池并行处理"""
+        if self._thread_pool is None:
+            raise RuntimeError("Thread pool not initialized. Call fit() first.")
+        batch_query_begin = time.time()
+        
+        num_queries = len(X)
+        print(f"Executing batch query with {num_queries} queries using {self._num_workers} workers")
+        
+        if self._index_type == 'jl':
+            # 对查询向量进行降维
+            X_reduced = self._apply_jl_reduction(X)
+            X_reduced = self._normalize_vectors(X_reduced)
+            
+            if self._enable_reordering:
+                # 带重排序的批量查询
+                tasks = []
+                for i, (original_vector, reduced_vector) in enumerate(zip(X, X_reduced)):
+                    tasks.append((original_vector, reduced_vector, n, i))
+                
+                futures = []
+                for task in tasks:
+                    future = self._thread_pool.submit(self._query_worker_with_reordering, task)
+                    futures.append(future)
+            else:
+                # 直接使用降维向量的批量查询
+                tasks = []
+                for i, vector in enumerate(X_reduced):
+                    tasks.append((vector, n, i))
+                
+                futures = []
+                for task in tasks:
+                    future = self._thread_pool.submit(self._query_worker, task)
+                    futures.append(future)
+        else:
+            # 原始批量查询
+            tasks = []
+            for i, vector in enumerate(X):
+                tasks.append((vector, n, i))
+            
+            futures = []
+            for task in tasks:
+                future = self._thread_pool.submit(self._query_worker, task)
+                futures.append(future)
+        
+        # 收集结果
+        results = [None] * num_queries
+        for future in as_completed(futures):
+            try:
+                query_id, result = future.result()
+                results[query_id] = result
+            except Exception as e:
+                print(f"Error in query worker: {e}")
+                raise
+        
+        self._time_to_finish_a_query = (time.time() - batch_query_begin)/num_queries
+        self._batch_results = results
+        print(self._time_to_finish_a_query)
 
     def get_batch_results(self):
         """获取批量查询的结果"""
@@ -456,8 +619,22 @@ class PGVectorIVFFlat_CuvsIVFPQ(BaseANN):
 
     def __del__(self):
         """清理资源"""
-        # cuVS 会自动清理 GPU 资源
-        pass
+        if self._thread_pool:
+            self._thread_pool.shutdown(wait=True)
+        
+        # 关闭连接池中的所有连接
+        while not self._connection_pool.empty():
+            try:
+                conn = self._connection_pool.get_nowait()
+                conn.close()
+            except:
+                pass
 
     def __str__(self):
-        return f"PGVectorIVFFlat+CuvsIVFPQ(lists={self._lists}, probes={self._probes})"
+        index_info = f"index_type={self._index_type}"
+        if self._index_type == 'jl':
+            index_info += f",{self._original_dim}=>{self._target_dim}"
+            if self._enable_reordering:
+                index_info += f",reordering={self._candidate_multiplier}X"
+        
+        return f"PGVectorMulti(lists={self._lists}, probes={self._probes}, workers={self._num_workers}, {index_info})"

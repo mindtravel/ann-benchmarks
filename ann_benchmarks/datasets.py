@@ -596,6 +596,23 @@ def coco(out_fn: str, kind: str):
 
     write_output(X_train, X_test, out_fn, "angular")
 
+def text10m(out_fn: str, dimension: int = 200) -> None:
+    """
+    处理TEXT10M数据集
+    """
+    url = "https://your-dataset-url/text10m.vec"  # 替换为实际URL
+    fn = os.path.join("data", "text10m.vec")
+    download(url, fn)
+    
+    # TODO: 读取数据
+    # 根据TEXT10M的实际格式读取数据
+    # 可能是二进制格式或文本格式
+    
+    # 3. 数据预处理
+    # 归一化、分割训练集和测试集等
+    
+    # 4. 写入HDF5格式
+    write_output(train_data, test_data, out_fn, "angular")  # 或"euclidean"
 
 DATASETS: Dict[str, Callable[[str], None]] = {
     "deep-image-96-angular": deep_image,
@@ -627,6 +644,7 @@ DATASETS: Dict[str, Callable[[str], None]] = {
     "movielens20m-jaccard": movielens20m,
     "coco-i2i-512-angular": lambda out_fn: coco(out_fn, "i2i"),
     "coco-t2i-512-angular": lambda out_fn: coco(out_fn, "t2i"),
+    "text10m-200-euclidean": lambda out_fn: text10m(out_fn, dimension=200),
 }
 
 DATASETS.update({

@@ -310,6 +310,7 @@ class PGVectorIVFFlatMulti(BaseANN):
             self._return_connection(conn)
 
     def fit(self, dataset):
+        self.lists = int(np.sqrt(dataset.shape[0]))
         psycopg_connect_kwargs: Dict[str, Any] = dict(
             autocommit=True,
         )

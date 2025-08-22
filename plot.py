@@ -97,7 +97,9 @@ def create_plot(all_data, raw, x_scale, y_scale, xn, yn, fn_out, linestyles, bat
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", metavar="DATASET", default="glove-100-angular")
+    parser.add_argument("--dataset", metavar="DATASET", 
+                        default="deep-image-96-angular"
+                        )
     parser.add_argument("--count", default=10)
     parser.add_argument(
         "--definitions", metavar="FILE", help="load algorithm definitions from FILE", default="algos.yaml"
@@ -136,6 +138,8 @@ if __name__ == "__main__":
     unique_algorithms = get_unique_algorithms()
     results = load_all_results(args.dataset, count, args.batch)
     linestyles = create_linestyles(sorted(unique_algorithms))
+    print("%3s: %80s %12s %12s %12s" % ("res", "experience name", "recall", "qps", "dpv"))
+    
     runs = compute_metrics(np.array(dataset["distances"]), results, args.x_axis, args.y_axis, args.recompute)
     if not runs:
         raise Exception("Nothing to plot")
