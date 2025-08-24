@@ -16,25 +16,24 @@ if [ "$1" = "baseline" ]; then \
     else \
         OPTFLAGS="-march=native"; \
     fi && \
-    cd /tmp/pgvector && \
+    cd ../pgvector-baseline && \
     make clean && \
     make OPTFLAGS="$OPTFLAGS" && \
     make install
 elif  [ "$1" = "ours" ]; then \
     echo "编译ours pgvector"
     cd ../pgvector
-    # g++ -std=c++17 -I/usr/include/postgresql -o cpp/vector_search cpp/parallel_flat.cpp -lpq
     make clean
     make
     make install
     # 替换PostgreSQL扩展
-    sudo cp /home/zongxi/pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
+    sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
 else \
     echo "未知的编译选项"
 
 fi
 
-cd /home/zongxi/ann-benchmarks
+cd ../ann-benchmarks
 
 # 重启PostgreSQL服务
 sudo service postgresql restart

@@ -1,10 +1,10 @@
 float:
   any:
   - base_args: ['@metric']
-    constructor: PGVectorMulti
+    constructor: PGVectorOurs
     disabled: false
-    docker_tag: ann-benchmarks-pgvectormulti
-    module: ann_benchmarks.algorithms.pgvector_multi
+    docker_tag: ann-benchmarks-pgvector_ours
+    module: ann_benchmarks.algorithms.pgvector_ours
     name: pgvector_ivfflat_ours
     run_groups:
       # 固定配置：lists=100, workers=20, gpu=true

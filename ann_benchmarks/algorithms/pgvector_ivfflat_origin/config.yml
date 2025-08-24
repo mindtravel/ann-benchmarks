@@ -5,7 +5,7 @@ float:
     disabled: false
     docker_tag: ann-benchmarks-pgvectormulti
     module: ann_benchmarks.algorithms.pgvector_multi
-    name: pgvector_ivfflat_ours
+    name: pgvector_ivfflat_origin
     run_groups:
       # 固定配置：lists=100, workers=20, gpu=true
       lists-100-workers-20-gpu:
