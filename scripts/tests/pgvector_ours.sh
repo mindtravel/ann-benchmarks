@@ -2,7 +2,7 @@
 # ours pgvector测试脚本
 echo "ours pgvector测试开始..."
 
-# ./scripts/tests/compile.sh ours
+./scripts/tests/compile.sh ours
 # ./scripts/tests/compile.sh baseline
 
 # 步骤3: 设置PostgreSQL多线程参数
@@ -23,7 +23,8 @@ export ANN_BENCHMARKS_PG_START_SERVICE=false
 
 # 使用多进程运行测试
 # python run.py --local --algorithm pgvector_ivfflat_multi_ours --batch --force --runs 1
-python run.py --local --algorithm pgvector_ivfflat_ours --dataset $1 --force --runs 1 --batch
+# python run.py --local --algorithm pgvector_ivfflat_ours --dataset $1 --force --runs 1 --batch
+python run.py --local --algorithm pgvector_ivfjl_ours --dataset $1 --force --runs 1 --batch
 
 echo "ours pgvector测试完成"
 

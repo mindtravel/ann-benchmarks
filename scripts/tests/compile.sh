@@ -30,7 +30,7 @@ make clean
 make
 make install
 
-if [ "$1" = "baseline" ]; then \
+if [ "$1" = "ours" ]; then \
     sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
 fi
 

@@ -4,7 +4,7 @@ float:
     constructor: PGVectorMulti
     disabled: false
     docker_tag: ann-benchmarks-pgvectormulti
-    module: ann_benchmarks.algorithms.pgvecto_rmulti
+    module: ann_benchmarks.algorithms.pgvector_multi
     name: pgvector_ivfjl_ours
     run_groups:
       # 固定配置：workers=20, gpu=true

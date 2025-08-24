@@ -210,6 +210,7 @@ class PGVectorSingle(BaseANN):
         self._metric = metric
         self._lists = method_param['lists']  # Number of lists for IVFFlat
         self._index_type = method_param.get('index_type')  # 是否使用GPU
+        self._version = method_param.get('version')  # choice: ["ours", "origin"]
         self._cur = None
 
         if metric == "angular":
@@ -360,4 +361,4 @@ class PGVectorSingle(BaseANN):
         return self._cur.fetchone()[0] / 1024
 
     def __str__(self):
-        return f"PGVectorSingle(lists={self._lists}, probes={self._probes})"
+        return f"PGVector {self._index_type} {self._version} (lists={self._lists}, probes={self._probes}, workers={self._num_workers})"

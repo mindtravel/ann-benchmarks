@@ -9,6 +9,6 @@ float:
     run_groups:
       # 固定配置：lists=100, workers=20, gpu=true
       lists-100-workers-20-gpu:
-        arg_groups: [{lists: 100, num_workers: 20, use_gpu: true, batch_size: 5000, index_type: ivfflat}]
+        arg_groups: [{lists: 100, num_workers: 20, use_gpu: true, batch_size: 5000, index_type: ivfflat, version: origin}]
         args: {}
         query_args: [[1, 5, 10, 20, 40]]

@@ -124,7 +124,7 @@ class CuvsIVFPQ(BaseANN):
 
 
     def fit(self, dataset):
-        if dataset.shape[0] > 1000 000:
+        if dataset.shape[0] > 1000000:
             self._lists = int(np.sqrt(dataset.shape[0]))
         else:
             self._lists = int(dataset.shape[0]/1000)
