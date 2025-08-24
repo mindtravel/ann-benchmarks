@@ -30,6 +30,7 @@ import time
 
 import pgvector.psycopg
 import psycopg
+import numpy as np
 
 from typing import Dict, Any, Optional
 
@@ -252,7 +253,7 @@ class PGVectorSingle(BaseANN):
                 cur.execute("CREATE EXTENSION vector")
 
     def fit(self, dataset):
-        if dataset.shape[0] > 1000 000:
+        if dataset.shape[0] > 1000000:
             self._lists = int(np.sqrt(dataset.shape[0]))
         else:
             self._lists = int(dataset.shape[0]/1000)

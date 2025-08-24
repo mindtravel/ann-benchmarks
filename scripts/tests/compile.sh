@@ -1,11 +1,12 @@
+# 编译原版pgvector或ours pgvector
+
 # 设置正确的语言环境
 export LC_ALL=C.utf8 && export LANG=C.utf8 && export LANGUAGE=C.utf8
 # 停止冲突的postgresql实例
 # pkill -f postgres
 sudo service postgresql stop
-# 编译原版pgvector或ours pgvector
+
 if [ "$1" = "baseline" ]; then \
-    # 编译恢复原版pgvector扩展
     # sudo apt-get update
     # sudo apt-get install -y postgresql-16-pgvector
     ARCH=$(uname -m) && \
@@ -17,20 +18,20 @@ if [ "$1" = "baseline" ]; then \
         OPTFLAGS="-march=native"; \
     fi && \
     cd ../pgvector-baseline && \
-    make clean && \
-    make OPTFLAGS="$OPTFLAGS" && \
-    make install
+    make OPTFLAGS="$OPTFLAGS"
 elif  [ "$1" = "ours" ]; then \
-    echo "编译ours pgvector"
     cd ../pgvector
-    make clean
-    make
-    make install
     # 替换PostgreSQL扩展
-    sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
 else \
     echo "未知的编译选项"
+fi  
 
+make clean
+make
+make install
+
+if [ "$1" = "baseline" ]; then \
+    sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
 fi
 
 cd ../ann-benchmarks
