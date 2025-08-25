@@ -21,7 +21,7 @@ if [ "$1" = "baseline" ]; then \
     make OPTFLAGS="$OPTFLAGS"
 elif  [ "$1" = "ours" ]; then \
     cd ../pgvector
-    # 替换PostgreSQL扩展
+
 else \
     echo "未知的编译选项"
 fi  
@@ -30,6 +30,7 @@ make clean
 make
 make install
 
+# 替换PostgreSQL扩展
 if [ "$1" = "ours" ]; then \
     sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
 fi

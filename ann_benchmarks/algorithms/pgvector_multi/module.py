@@ -215,8 +215,8 @@ class PGVectorMulti(BaseANN):
         # self._lists = method_param['lists']  # Number of lists for IVFFlat
         self._num_workers = method_param.get('num_workers', 4)  # 线程池大小
         self._batch_size = method_param.get('batch_size', 5000)  # 批处理大小
-        self._index_type = method_param.get('index_type')  # 是否使用GPU
-        self._version = method_param.get('version')  # choice: ["ours", "origin"]
+        self._index_type = method_param.get('index_type')  # 索引类型
+        self._version = method_param.get('version')  # choice: ["Ours", "Origin"]
         self._use_gpu = method_param.get('use_gpu', False)  # 是否使用GPU
         self._cur = None
         self._conn = None

@@ -22,7 +22,6 @@ export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
 # 使用多进程运行测试
-# python run.py --local --algorithm pgvector_ivfflat_multi_ours --batch --force --runs 1
 # python run.py --local --algorithm pgvector_ivfflat_ours --dataset $1 --force --runs 1 --batch
 python run.py --local --algorithm pgvector_ivfjl_ours --dataset $1 --force --runs 1 --batch
 
