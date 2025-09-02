@@ -30,6 +30,7 @@ import time
 
 import pgvector.psycopg
 import psycopg
+import numpy as np
 
 from typing import Dict, Any, Optional
 
@@ -207,8 +208,9 @@ class IndexingProgressMonitor:
 class PGVectorSingle(BaseANN):
     def __init__(self, metric, method_param):
         self._metric = metric
-        self._lists = method_param['lists']  # Number of lists for IVFFlat
+        # self._lists = method_param['lists']  # Number of lists for IVFFlat
         self._index_type = method_param.get('index_type')  # 是否使用GPU
+        self._version = method_param.get('version')  # choice: ["ours", "origin"]
         self._cur = None
 
         if metric == "angular":
@@ -217,6 +219,14 @@ class PGVectorSingle(BaseANN):
             self._query = "SELECT id FROM items ORDER BY embedding <-> %s LIMIT %s"
         else:
             raise RuntimeError(f"unknown metric {metric}")
+        
+        if metric == "angular":
+            self._parallel_query = "SELECT id FROM items ORDER BY %s::vector_batch <=>> embedding LIMIT %s"
+        elif metric == "euclidean":
+            self._parallel_query = "SELECT id FROM items ORDER BY %s::vector_batch <->> embedding LIMIT %s"
+        else:
+            raise RuntimeError(f"unknown metric {metric}")
+
 
     def get_metric_properties(self) -> Dict[str, str]:
         """
@@ -252,7 +262,7 @@ class PGVectorSingle(BaseANN):
                 cur.execute("CREATE EXTENSION vector")
 
     def fit(self, dataset):
-        if dataset.shape[0] > 1000 000:
+        if dataset.shape[0] > 1000000:
             self._lists = int(np.sqrt(dataset.shape[0]))
         else:
             self._lists = int(dataset.shape[0]/1000)
@@ -314,8 +324,17 @@ class PGVectorSingle(BaseANN):
         print("creating index...")
         sys.stdout.flush()
         cur.execute("SET maintenance_work_mem = '2GB'")
+        # cur.execute("SET max_parallel_workers_per_gather = 20;")
+        # cur.execute("SET max_parallel_workers = 8;")
+        # cur.execute("SET max_parallel_maintenance_workers = 8;")
+        # cur.execute("SET max_parallel_maintenance_workers = 8;")
+        
+        # cur.execute("SET parallel_tuple_cost = 0.01;")
+        # cur.execute("SET parallel_setup_cost = 100.0; ")
+        # cur.execute("EXPLAIN (ANALYZE)")
+         
         create_index_str = \
-            "CREATE INDEX ON items USING ivfflat (embedding vector_%s_ops) " \
+            "CREATE INDEX ON items USING " + self._index_type + " (embedding vector_%s_ops) " \
             "WITH (lists = %d)" % (
                 self.get_metric_properties()["ops_type"],
                 self._lists
@@ -327,7 +346,7 @@ class PGVectorSingle(BaseANN):
             cur.execute(create_index_str)
         finally:
             progress_monitor.stop_monitoring_thread()
-        print("done!")
+
         progress_monitor.report_timings()
         self._cur = cur
 
@@ -339,18 +358,24 @@ class PGVectorSingle(BaseANN):
         self._cur.execute(self._query, (v, n), binary=True, prepare=True)
         return [id for id, in self._cur.fetchall()]
 
+    def parallel_query(self, X, n):
+        """执行批量向量查询，使用PostgreSQL的批量操作"""
+        self._cur.execute(self._parallel_query, (X, n), binary=True, prepare=True)
+        return [id for id, in self._cur.fetchall()]
+        # return self._batch_query_optimized(X, n)
+         
     def batch_query(self, X, n):
-        """执行批量查询，使用PostgreSQL的批量查询功能"""
-        self._batch_results = []
-        
-        # 为每个查询向量执行查询
-        for v in X:
-            result = self.query(v, n)
-            self._batch_results.append(result)
+        """执行批量查询，使用PostgreSQL的批量查询功能"""        
+        print(f"shape of X: {X.shape} \ttype of X:{type(X)}")
+        # 使用优化的批量查询
+        result = self.parallel_query(X, n)
+        self._batch_results = np.array(result).reshape(-1, n).tolist()
+        return self._batch_results
     
     def get_batch_results(self):
         """获取批量查询的结果"""
-        return self._batch_results
+        return self._batch_results  
+
 
     def get_memory_usage(self):
         if self._cur is None:
@@ -359,4 +384,4 @@ class PGVectorSingle(BaseANN):
         return self._cur.fetchone()[0] / 1024
 
     def __str__(self):
-        return f"PGVectorSingle(lists={self._lists}, probes={self._probes})"
+        return f"PGVector {self._index_type} {self._version} (lists={self._lists}, probes={self._probes})"

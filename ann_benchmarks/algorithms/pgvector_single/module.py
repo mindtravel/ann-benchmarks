@@ -208,7 +208,7 @@ class IndexingProgressMonitor:
 class PGVectorSingle(BaseANN):
     def __init__(self, metric, method_param):
         self._metric = metric
-        self._lists = method_param['lists']  # Number of lists for IVFFlat
+        # self._lists = method_param['lists']  # Number of lists for IVFFlat
         self._index_type = method_param.get('index_type')  # 是否使用GPU
         self._version = method_param.get('version')  # choice: ["ours", "origin"]
         self._cur = None
@@ -316,8 +316,17 @@ class PGVectorSingle(BaseANN):
         print("creating index...")
         sys.stdout.flush()
         cur.execute("SET maintenance_work_mem = '2GB'")
+        # cur.execute("SET max_parallel_workers_per_gather = 20;")
+        # cur.execute("SET max_parallel_workers = 8;")
+        # cur.execute("SET max_parallel_maintenance_workers = 8;")
+        # cur.execute("SET max_parallel_maintenance_workers = 8;")
+        
+        # cur.execute("SET parallel_tuple_cost = 0.01;")
+        # cur.execute("SET parallel_setup_cost = 100.0; ")
+        # cur.execute("EXPLAIN (ANALYZE)")
+         
         create_index_str = \
-            "CREATE INDEX ON items USING ivfflat (embedding vector_%s_ops) " \
+            "CREATE INDEX ON items USING " + self._index_type + " (embedding vector_%s_ops) " \
             "WITH (lists = %d)" % (
                 self.get_metric_properties()["ops_type"],
                 self._lists
@@ -329,7 +338,7 @@ class PGVectorSingle(BaseANN):
             cur.execute(create_index_str)
         finally:
             progress_monitor.stop_monitoring_thread()
-        print("done!")
+
         progress_monitor.report_timings()
         self._cur = cur
 
@@ -361,4 +370,4 @@ class PGVectorSingle(BaseANN):
         return self._cur.fetchone()[0] / 1024
 
     def __str__(self):
-        return f"PGVector {self._index_type} {self._version} (lists={self._lists}, probes={self._probes}, workers={self._num_workers})"
+        return f"PGVector {self._index_type} {self._version} (lists={self._lists}, probes={self._probes})"

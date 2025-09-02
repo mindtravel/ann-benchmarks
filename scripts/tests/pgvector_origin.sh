@@ -19,8 +19,8 @@ export ANN_BENCHMARKS_PG_PASSWORD=
 export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
-python run.py --local --algorithm pgvector_ivfflat_origin --dataset $1 --batch --runs 1
-# python run.py --local --algorithm pgvector_ivfflat_single --dataset $1 --batch --runs 1
+# python run.py --local --algorithm pgvector_ivfflat_origin --dataset $1 --batch --runs 1 --force
+python run.py --local --algorithm pgvector_ivfflat_single --dataset $1 --batch --runs 1 --force
 
 echo "原版pgvector测试完成"
 
