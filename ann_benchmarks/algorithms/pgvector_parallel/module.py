@@ -221,9 +221,9 @@ class PGVectorSingle(BaseANN):
             raise RuntimeError(f"unknown metric {metric}")
         
         if metric == "angular":
-            self._parallel_query = "SELECT id FROM items ORDER BY %s::vector_batch <=>> embedding LIMIT %s"
+            self._parallel_query = "SELECT id FROM items ORDER BY %s <=>> embedding LIMIT %s"
         elif metric == "euclidean":
-            self._parallel_query = "SELECT id FROM items ORDER BY %s::vector_batch <->> embedding LIMIT %s"
+            self._parallel_query = "SELECT id FROM items ORDER BY %s <->> embedding LIMIT %s"
         else:
             raise RuntimeError(f"unknown metric {metric}")
 
@@ -362,11 +362,10 @@ class PGVectorSingle(BaseANN):
         """执行批量向量查询，使用PostgreSQL的批量操作"""
         self._cur.execute(self._parallel_query, (X, n), binary=True, prepare=True)
         return [id for id, in self._cur.fetchall()]
-        # return self._batch_query_optimized(X, n)
          
     def batch_query(self, X, n):
         """执行批量查询，使用PostgreSQL的批量查询功能"""        
-        print(f"shape of X: {X.shape} \ttype of X:{type(X)}")
+        # print(f"shape of X: {X.shape} \ttype of X:{type(X)}")
         # 使用优化的批量查询
         result = self.parallel_query(X, n)
         self._batch_results = np.array(result).reshape(-1, n).tolist()

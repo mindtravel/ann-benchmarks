@@ -1,8 +1,6 @@
 #!/bin/bash
 
 # 恢复原版pgvector扩展并测试脚本
-echo "=== 恢复原版pgvector扩展并测试 ==="
-
 ./scripts/tests/compile.sh baseline
 
 # 步骤3: 验证原版扩展
@@ -19,7 +17,10 @@ export ANN_BENCHMARKS_PG_PASSWORD=
 export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
+# 测试多线程版本
 # python run.py --local --algorithm pgvector_ivfflat_origin --dataset $1 --batch --runs 1 --force
+
+# 测试但线程版本
 python run.py --local --algorithm pgvector_ivfflat_single --dataset $1 --batch --runs 1 --force
 
 echo "原版pgvector测试完成"
