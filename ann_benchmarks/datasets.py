@@ -596,49 +596,23 @@ def coco(out_fn: str, kind: str):
 
     write_output(X_train, X_test, out_fn, "angular")
 
-
-def TEXT(out_fn: str,
-         n_total: int,
-         test_size: int,
-         count: int,
-         distance: str) -> None:
+def text10m(out_fn: str, dimension: int = 200) -> None:
     """
-    按需把原始 ann-data/TEXT.base.10M.fbin 截断成 TEXT_200k.fbin，再生成 ann-benchmarks HDF5。
+    处理TEXT10M数据集
     """
-    import struct
-    import numpy as np
-
-    raw_fbin  = os.path.join("ann-data", "TEXT.base.10M.fbin")          # 原始大文件
-    crop_fbin = os.path.join("data", f"TEXT_{n_total//1000}k.fbin")  # 裁剪后文件
-
-    # 1. 若裁剪文件不存在，则现场制作
-    if not os.path.exists(crop_fbin):
-        if not os.path.exists(raw_fbin):
-            raise FileNotFoundError(f"请先把原始 TEXT.base.10M.fbin 放入 {raw_fbin}")
-        print(f"=> 首次运行，正在生成 {crop_fbin} （前 {n_total} 条）")
-        with open(raw_fbin, "rb") as f:
-            num, dim = struct.unpack("II", f.read(8))
-            n = min(n_total, num)
-            vec = np.frombuffer(f.read(n * dim * 4), dtype=np.float32).reshape(n, dim)
-        with open(crop_fbin, "wb") as g:
-            g.write(struct.pack("II", n, dim))
-            g.write(vec.astype(np.float32).tobytes())
-        print(f"<= 裁剪完成：{crop_fbin}  {n}×{dim}  {os.path.getsize(crop_fbin)//1024//1024} MB")
-
-    # 2. 读取裁剪后的文件
-    with open(crop_fbin, "rb") as f:
-        n_file, dim = struct.unpack("II", f.read(8))
-        X = np.frombuffer(f.read(n_file * dim * 4), dtype=np.float32).reshape(n_file, dim)
-
-    # 3. 划分 & 写 HDF5
-    train, test = train_test_split(X, test_size=test_size, dimension=dim)
-    write_output(train, test, out_fn,
-                 distance="angular",
-                 point_type="float",
-                 count=count)
-    # 4. 清理临时裁剪文件
-    os.remove(crop_fbin)
-    print(f"<= 已删除临时文件 {crop_fbin}")
+    url = "https://your-dataset-url/text10m.vec"  # 替换为实际URL
+    fn = os.path.join("data", "text10m.vec")
+    download(url, fn)
+    
+    # TODO: 读取数据
+    # 根据TEXT10M的实际格式读取数据
+    # 可能是二进制格式或文本格式
+    
+    # 3. 数据预处理
+    # 归一化、分割训练集和测试集等
+    
+    # 4. 写入HDF5格式
+    write_output(train_data, test_data, out_fn, "angular")  # 或"euclidean"
 
 DATASETS: Dict[str, Callable[[str], None]] = {
     "deep-image-96-angular": deep_image,
@@ -669,10 +643,8 @@ DATASETS: Dict[str, Callable[[str], None]] = {
     "movielens10m-jaccard": movielens10m,
     "movielens20m-jaccard": movielens20m,
     "coco-i2i-512-angular": lambda out_fn: coco(out_fn, "i2i"),
-    "coco-t2i-512-angular": lambda out_fn: coco(out_fn, "t2i"),    
-    "TEXT1M-200-angular": lambda out_fn: TEXT(out_fn, n_total=1000_000, test_size=1_000, count=100, distance="angular"),
-    "TEXT500k-200-angular": lambda out_fn: TEXT(out_fn, n_total=500_000, test_size=1_000, count=100, distance="angular"),
-    #"text2image-200k": lambda out_fn: text2image_200k(out_fn),
+    "coco-t2i-512-angular": lambda out_fn: coco(out_fn, "t2i"),
+    "text10m-200-euclidean": lambda out_fn: text10m(out_fn, dimension=200),
 }
 
 DATASETS.update({
