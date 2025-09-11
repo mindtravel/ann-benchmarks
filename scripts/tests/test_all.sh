@@ -1,6 +1,5 @@
-# 用甲方给的三个数据集测试（Text还不支持）
-for dataset in "sift-128-euclidean" "deep-image-96-angular" 
-# "text10m-200-euclidean"
+# 用甲方给的三个数据集测试
+for dataset in "sift-128-euclidean" "deep-image-96-angular" "TEXT500k-200-angular"
 
 do
     # 测试原版pgvector

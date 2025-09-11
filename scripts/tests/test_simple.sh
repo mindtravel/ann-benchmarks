@@ -1,5 +1,5 @@
 # 用一个小数据集来测试
-dataset="glove-100-angular"
+dataset="TEXT1M-200-angular" # TEXT500k-200-angular deep-image-96-angular sift-128-euclidean TEXT1M-200-angular 
 
 # 测试原版pgvector
 # ./scripts/tests/pgvector_origin.sh $dataset
