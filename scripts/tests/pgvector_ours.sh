@@ -44,7 +44,7 @@ export ANN_BENCHMARKS_PG_START_SERVICE=false
 python run.py --local --algorithm pgvector_ivfflat_multi --dataset $1 --force --runs 1 --batch
 
 # 测试jl版本，半途而废了，不用管
-# python run.py --local --algorithm pgvector_ivfjl_ours --dataset $1 --force --runs 1 --batch
+# python run.py --local --algorithm pgvector_ivfjl --dataset $1 --force --runs 1 --batch
 
 echo "ours pgvector测试完成"
 
