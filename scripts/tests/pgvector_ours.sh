@@ -2,10 +2,11 @@
 # ours pgvector测试脚本
 echo "ours pgvector测试开始..."
 
-./scripts/tests/compile.sh ours
+# ./scripts/tests/compile.sh ours
 # ./scripts/tests/compile.sh baseline
 
 # 步骤3: 设置PostgreSQL多线程参数
+su - postgres -c "createdb ann"
 sudo -u postgres psql -d ann -c "DROP EXTENSION IF EXISTS vector CASCADE;"
 sudo -u postgres psql -d ann -c "CREATE EXTENSION vector;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 20;"
@@ -38,10 +39,10 @@ export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
 # 测试GPU版本
-# python run.py --local --algorithm pgvector_ivfflat_gpu --dataset $1 --force --runs 1 --batch
+python run.py --local --local --local --algorithm pgvector_ivfflat_gpu --dataset $1 --force --runs 1 --batch
 
 # 测试多线程版本
-python run.py --local --algorithm pgvector_ivfflat_multi --dataset $1 --force --runs 1 --batch
+# python run.py --local --local --local --algorithm pgvector_ivfflat_multi --dataset $1 --force --runs 1 --batch
 
 # 测试jl版本，半途而废了，不用管
 # python run.py --local --algorithm pgvector_ivfjl --dataset $1 --force --runs 1 --batch
