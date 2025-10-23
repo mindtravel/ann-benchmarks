@@ -11,5 +11,5 @@ float:
       single:
         arg_groups: [{num_workers: 20, use_gpu: false, batch_size: 5000, index_type: ivfjl, version: Ours}]
         args: {}
-        # query_args: [[1, 5, 10, 20, 40]]
-        query_args: [[1]]
+        query_args: [[1, 5, 10, 20, 40]]
+        # query_args: [[1]]

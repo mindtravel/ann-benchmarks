@@ -355,14 +355,14 @@ def DEEP(out_fn: str,
          count: int = 100,
          distance: str = "angular") -> None:
     """
-    按需把原始 ann-data/DEEP.base.10M.fbin 截断成 DEEP_1M.fbin，再生成 ann-benchmarks HDF5。
+    按需把原始 data/DEEP.base.10M.fbin 截断成 DEEP_1M.fbin，再生成 ann-benchmarks HDF5。
     原始文件若不存在，则自动调用 download() 下载。
     """
     import os
     import struct
     import numpy as np
 
-    raw_fbin  = os.path.join("ann-data", "DEEP.base.10M.fbin")          # 原始大文件
+    raw_fbin  = os.path.join("data", "DEEP.base.10M.fbin")          # 原始大文件
     crop_fbin = os.path.join("data", f"DEEP_{n_total//1000}k.fbin")  # 裁剪后文件
     os.makedirs("data", exist_ok=True)
 
@@ -727,8 +727,8 @@ def TEXT1M_200_angular(out_fn: str = "TEXT1M-200-angular.hdf5",
 
 
 DATASETS: Dict[str, Callable[[str], None]] = {
-    "Deep-image1M-96-angular": lambda out_fn: DEEP(out_fn, n_total=1_000_000, test_size=10_000, count=100, distance="angular"),
-    #"deep-image-96-angular": lambda out_fn: deep_image(n_wanted=1000_000),    
+    # "Deep-image1M-96-angular": lambda out_fn: DEEP(out_fn, n_total=1_000_000, test_size=10_000, count=100, distance="angular"),
+    "deep-image-96-angular": lambda out_fn: deep_image(n_wanted=1000_000),    
     "fashion-mnist-784-euclidean": fashion_mnist,
     "gist-960-euclidean": gist,
     "glove-25-angular": lambda out_fn: glove(out_fn, 25),
