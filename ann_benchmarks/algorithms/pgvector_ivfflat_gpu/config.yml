@@ -12,3 +12,4 @@ float:
         arg_groups: [{lists: 100, use_gpu: true, batch_size: 5000, index_type: ivfflat, version: Ours}]
         args: {}
         query_args: [[1, 5, 10, 20, 40]]
+        # query_args: [[1]]
