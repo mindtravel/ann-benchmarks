@@ -4,12 +4,12 @@ float:
     constructor: PGVectorSingle
     disabled: false
     docker_tag: ann-benchmarks-pgvectorsingle
-    module: ann_benchmarks.algorithms.pgvector_single
-    name: pgvector_ivfflat_single
+    module: ann_benchmarks.algorithms.pgvector_parallel
+    name: pgvector_ivfflat_batch
     run_groups:
       # 固定配置：workers=20, gpu=true
       workers-20-gpu:
-        arg_groups: [{batch_size: 5000, index_type: ivfflat, version: Origin}]
+        arg_groups: [{batch_size: 50, index_type: ivfflat, version: Ours}]
         args: {}
-        query_args: [[1, 5, 10, 20, 40]]
+        query_args: [[10,20,40,50]]
         # query_args: [[1]]

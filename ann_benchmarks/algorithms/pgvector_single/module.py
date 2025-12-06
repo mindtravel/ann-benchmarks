@@ -211,6 +211,8 @@ class PGVectorSingle(BaseANN):
         # self._lists = method_param['lists']  # Number of lists for IVFFlat
         self._index_type = method_param.get('index_type')  # 是否使用GPU
         self._version = method_param.get('version')  # choice: ["ours", "origin"]
+        self._batch_size = method_param.get('batch_size')
+        self._index_oid = None
         self._cur = None
 
         if metric == "angular":
@@ -340,6 +342,12 @@ class PGVectorSingle(BaseANN):
             progress_monitor.stop_monitoring_thread()
 
         progress_monitor.report_timings()
+        # 缓存索引 OID，用于批量查询 batch_vector_search
+        cur.execute("SELECT oid FROM pg_class WHERE relname = 'items_embedding_idx'")
+        result = cur.fetchone()
+        if result is not None:
+            self._index_oid = result[0]
+
         self._cur = cur
 
     def set_query_arguments(self, probes):
@@ -351,13 +359,49 @@ class PGVectorSingle(BaseANN):
         return [id for id, in self._cur.fetchall()]
 
     def batch_query(self, X, n):
-        """执行批量查询，使用PostgreSQL的批量查询功能"""
-        self._batch_results = []
-        
-        # 为每个查询向量执行查询
-        for v in X:
-            result = self.query(v, n)
-            self._batch_results.append(result)
+        """执行批量查询，支持 Ours 版本使用 batch_vector_search"""
+        # origin 版本：保持兼容，逐条调用单查询接口
+        # 注意：与 config.yml 中的 version: Ours 保持一致
+        if self._version != "Ours" or self._index_oid is None:
+            self._batch_results = []
+            for v in X:
+                result = self.query(v, n)
+                self._batch_results.append(result)
+            return
+
+        # ours 版本：利用扩展函数 batch_vector_search 进行批量查询
+        # 按 batch_size 切分查询，避免一次性将所有查询压到 GPU
+        total_queries = len(X)
+        batch_size = self._batch_size or total_queries
+
+        sql = (
+            "SELECT query_id, vector_id "
+            "FROM batch_vector_search(%s, %s::vector[], %s) "
+            "ORDER BY query_id, distance"
+        )
+
+        all_results = []
+        for batch_idx, start in enumerate(range(0, total_queries, batch_size)):
+            end = min(start + batch_size, total_queries)
+            batch_X = X[start:end]
+            query_vectors = [v for v in batch_X]
+
+            # 每100个批次输出进度信息
+            if batch_idx % 100 == 0:
+                print(f"Processing batch {batch_idx}/{(total_queries + batch_size - 1) // batch_size}, queries {start}-{end-1}")
+
+            self._cur.execute(sql, (self._index_oid, query_vectors, n))
+            rows = self._cur.fetchall()
+
+            num_queries_batch = len(batch_X)
+            batch_results = [[] for _ in range(num_queries_batch)]
+            for query_id, vector_id in rows:
+                if query_id is not None and 0 <= query_id < num_queries_batch and len(batch_results[query_id]) < n:
+                    batch_results[query_id].append(vector_id)
+
+            all_results.extend(batch_results)
+
+        self._batch_results = all_results
     
     def get_batch_results(self):
         """获取批量查询的结果"""

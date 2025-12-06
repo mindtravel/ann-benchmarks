@@ -1,11 +1,11 @@
 # 用一个小数据集来测试
-dataset="glove-100-angular"
+dataset="TEXT1M-200-angular" #  Deep-image1M-96-angular sift-128-euclidean TEXT1M-200-angular 
 
 # 测试原版pgvector
-# ./scripts/tests/pgvector_origin.sh $dataset
+./scripts/tests/pgvector_origin.sh $dataset
 
 # 测试我们的pgvector
-./scripts/tests/pgvector_ours.sh $dataset
+# ./scripts/tests/pgvector_ours.sh $dataset
 
 # 测试cuvs
 # ./scripts/tests/cuvs.sh $dataset

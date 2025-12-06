@@ -208,9 +208,10 @@ class IndexingProgressMonitor:
 class PGVectorSingle(BaseANN):
     def __init__(self, metric, method_param):
         self._metric = metric
-        # self._lists = method_param['lists']  # Number of lists for IVFFlat
-        self._index_type = method_param.get('index_type')  # 是否使用GPU
-        self._version = method_param.get('version')  # choice: ["ours", "origin"]
+        self._index_type = method_param.get('index_type')
+        self._version = method_param.get('version')
+        self._batch_size = method_param.get('batch_size')
+        self._index_oid = None
         self._cur = None
 
         if metric == "angular":
@@ -219,14 +220,6 @@ class PGVectorSingle(BaseANN):
             self._query = "SELECT id FROM items ORDER BY embedding <-> %s LIMIT %s"
         else:
             raise RuntimeError(f"unknown metric {metric}")
-        
-        if metric == "angular":
-            self._parallel_query = "SELECT id FROM items ORDER BY %s <=>> embedding LIMIT %s"
-        elif metric == "euclidean":
-            self._parallel_query = "SELECT id FROM items ORDER BY %s <->> embedding LIMIT %s"
-        else:
-            raise RuntimeError(f"unknown metric {metric}")
-
 
     def get_metric_properties(self) -> Dict[str, str]:
         """
@@ -248,10 +241,6 @@ class PGVectorSingle(BaseANN):
         Ensure that `CREATE EXTENSION vector` has been executed.
         """
         with conn.cursor() as cur:
-            # We have to use a separate cursor for this operation.
-            # If we reuse the same cursor for later operations, we might get
-            # the following error:
-            # KeyError: "couldn't find the type 'vector' in the types registry"
             cur.execute(
                 "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')")
             pgvector_exists = cur.fetchone()[0]
@@ -271,12 +260,9 @@ class PGVectorSingle(BaseANN):
             autocommit=True,
         )
         for arg_name in ['user', 'password', 'dbname']:
-            # The default value is "ann" for all of these parameters.
             psycopg_connect_kwargs[arg_name] = get_pg_conn_param(
                 arg_name, 'ann')
 
-        # If host/port are not specified, leave the default choice to the
-        # psycopg driver.
         pg_host: Optional[str] = get_pg_conn_param('host')
         if pg_host is not None:
             psycopg_connect_kwargs['host'] = pg_host
@@ -324,14 +310,6 @@ class PGVectorSingle(BaseANN):
         print("creating index...")
         sys.stdout.flush()
         cur.execute("SET maintenance_work_mem = '2GB'")
-        # cur.execute("SET max_parallel_workers_per_gather = 20;")
-        # cur.execute("SET max_parallel_workers = 8;")
-        # cur.execute("SET max_parallel_maintenance_workers = 8;")
-        # cur.execute("SET max_parallel_maintenance_workers = 8;")
-        
-        # cur.execute("SET parallel_tuple_cost = 0.01;")
-        # cur.execute("SET parallel_setup_cost = 100.0; ")
-        # cur.execute("EXPLAIN (ANALYZE)")
          
         create_index_str = \
             "CREATE INDEX ON items USING " + self._index_type + " (embedding vector_%s_ops) " \
@@ -348,6 +326,14 @@ class PGVectorSingle(BaseANN):
             progress_monitor.stop_monitoring_thread()
 
         progress_monitor.report_timings()
+        
+        # 如果需要使用 batch_vector_search（Ours 版本），缓存索引 OID
+        if self._version == "Ours":
+            cur.execute("SELECT oid FROM pg_class WHERE relname = 'items_embedding_idx'")
+            result = cur.fetchone()
+            if result is not None:
+                self._index_oid = result[0]
+
         self._cur = cur
 
     def set_query_arguments(self, probes):
@@ -358,23 +344,128 @@ class PGVectorSingle(BaseANN):
         self._cur.execute(self._query, (v, n), binary=True, prepare=True)
         return [id for id, in self._cur.fetchall()]
 
-    def parallel_query(self, X, n):
-        """执行批量向量查询，使用PostgreSQL的批量操作"""
-        self._cur.execute(self._parallel_query, (X, n), binary=True, prepare=True)
-        return [id for id, in self._cur.fetchall()]
-         
     def batch_query(self, X, n):
-        """执行批量查询，使用PostgreSQL的批量查询功能"""        
-        # print(f"shape of X: {X.shape} \ttype of X:{type(X)}")
-        # 使用优化的批量查询
-        result = self.parallel_query(X, n)
-        self._batch_results = np.array(result).reshape(-1, n).tolist()
+        """执行批量查询，支持 Ours 版本使用 batch_vector_search"""
+        import time
+        
+        # 记录开始时间
+        start_time = time.time()
+        
+        # origin 版本：不支持批量查询，回退到逐个查询
+        if self._version != "Ours":
+            result = self._fallback_batch_query(X, n)
+            # 记录每个查询的平均时间
+            total_time = time.time() - start_time
+            self._batch_latencies = [total_time / len(X)] * len(X)
+            return result
+        
+        # Ours 版本：使用 batch_vector_search
+        total_queries = len(X)
+        
+        # 获取索引 OID（如果还没有的话）
+        if self._index_oid is None:
+            self._cur.execute("SELECT oid FROM pg_class WHERE relname = 'items_embedding_idx'")
+            result = self._cur.fetchone()
+            if result is not None:
+                self._index_oid = result[0]
+            else:
+                # 如果没有索引 OID，回退到逐个查询
+                return self._fallback_batch_query(X, n)
+
+        # Ours 版本的批量大小
+        batch_size = self._batch_size or total_queries
+
+        sql = (
+            "SELECT query_id, vector_id "
+            "FROM batch_vector_search(%s, %s::vector[], %s) "
+            "ORDER BY query_id, distance"
+        )
+
+        all_results = []
+        for batch_idx, start in enumerate(range(0, total_queries, batch_size)):
+            end = min(start + batch_size, total_queries)
+            batch_X = X[start:end]
+            query_vectors = [v for v in batch_X]
+
+            # 每100个批次输出进度信息（仅对 Ours 版本）
+            if batch_idx % 100 == 0:
+                print(
+                    f"Processing batch {batch_idx}/{(total_queries + batch_size - 1) // batch_size}, "
+                    f"queries {start}-{end-1}"
+                )
+            
+            # 调试信息：检查实际传递的向量数量
+            if batch_idx == 0:
+                print(f"DEBUG: batch_size={batch_size}, actual_vectors={len(query_vectors)}, vector_dim={len(query_vectors[0]) if query_vectors else 0}")
+
+            self._cur.execute(sql, (self._index_oid, query_vectors, n))
+            rows = self._cur.fetchall()
+
+            num_queries_batch = len(batch_X)
+            batch_results = [[] for _ in range(num_queries_batch)]
+            for query_id, vector_id in rows:
+                if (
+                    query_id is not None
+                    and vector_id is not None
+                    and 0 <= query_id < num_queries_batch
+                    and len(batch_results[query_id]) < n
+                    and vector_id not in batch_results[query_id]
+                ):
+                    batch_results[query_id].append(vector_id)
+            
+            # 对于没有足够结果的查询，使用回退查询填充
+            for i, result in enumerate(batch_results):
+                if len(result) < n:
+                    # 使用单个查询作为回退
+                    v = batch_X[i]
+                    self._cur.execute(self._query, (v, n), binary=True, prepare=True)
+                    fallback_results = [id for id, in self._cur.fetchall()]
+                    # 合并结果，避免重复
+                    for fid in fallback_results:
+                        if fid not in result and len(result) < n:
+                            result.append(fid)
+
+            all_results.extend(batch_results)
+
+        # 确保每个查询都有结果，即使为空列表
+        while len(all_results) < total_queries:
+            all_results.append([])
+            
+        # 记录每个查询的平均时间
+        total_time = time.time() - start_time
+        avg_time_per_query = total_time / total_queries
+        
+        # 确保最小时间不为0，避免QPS为无穷大
+        min_time = 1e-6  # 1微秒
+        if avg_time_per_query < min_time:
+            avg_time_per_query = min_time
+            
+        self._batch_latencies = [avg_time_per_query] * total_queries
+        
+        # 调试信息
+        print(f"Batch query completed: {total_queries} queries in {total_time:.6f}s, avg={avg_time_per_query:.6f}s per query")
+            
+        self._batch_results = all_results
+        return self._batch_results
+    
+    def _fallback_batch_query(self, X, n):
+        """回退方案：逐个查询"""
+        all_results = []
+        for v in X:
+            self._cur.execute(self._query, (v, n), binary=True, prepare=True)
+            results = [id for id, in self._cur.fetchall()]
+            all_results.append(results)
+        
+        self._batch_results = all_results
         return self._batch_results
     
     def get_batch_results(self):
         """获取批量查询的结果"""
-        return self._batch_results  
-
+        return self._batch_results
+    
+    def get_batch_latencies(self):
+        """获取批量查询中每个查询的延迟"""
+        return getattr(self, '_batch_latencies', [])
 
     def get_memory_usage(self):
         if self._cur is None:
