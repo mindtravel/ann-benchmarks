@@ -38,14 +38,17 @@ export ANN_BENCHMARKS_PG_PASSWORD=
 export ANN_BENCHMARKS_PG_DBNAME=ann
 export ANN_BENCHMARKS_PG_START_SERVICE=false
 
+export http_proxy=http://127.0.0.1:33210
+export https_proxy=http://127.0.0.1:33210
 # 测试GPU版本
-python run.py --local --local --local --algorithm pgvector_ivfflat_gpu --dataset $1 --force --runs 1 --batch
+python run.py --local --algorithm pgvector_ivfflat_gpu --dataset $1 --force --runs 1 --batch
 
 # 测试多线程版本
-# python run.py --local --local --local --algorithm pgvector_ivfflat_multi --dataset $1 --force --runs 1 --batch
+# python run.py --local --algorithm pgvector_ivfflat_multi --dataset $1 --force --runs 1 --batch
 
 # 测试jl版本，半途而废了，不用管
 # python run.py --local --algorithm pgvector_ivfjl --dataset $1 --force --runs 1 --batch
+./scripts/tests/filter_postgres_log.sh
 
 echo "ours pgvector测试完成"
 

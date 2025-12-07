@@ -36,8 +36,18 @@ elif  [ "$1" = "ours" ]; then \
     make install
     # make clean
     # make
-    # make install
     sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
+    # 替换PostgreSQL扩展
+elif  [ "$1" = "cxl" ]; then \
+    cd ../cxl/pgvector
+    make OPTFLAGS="$OPTFLAGS"
+    make -f Makefile.cuda clean
+    make -f Makefile.cuda
+    make install
+    # make clean
+    # make
+    # make install
+    sudo cp vector.so /usr/lib/postgresql/16/lib/vector.so
     # 替换PostgreSQL扩展
 else \
     echo "未知的编译选项"

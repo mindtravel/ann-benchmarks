@@ -20,7 +20,7 @@ export ANN_BENCHMARKS_PG_START_SERVICE=false
 # 测试多线程版本
 python run.py --local --algorithm pgvector_ivfflat_multi --dataset $1 --batch --runs 1 --force
 
-# 测试但线程版本
+# 测试单线程版本
 # python run.py --local --algorithm pgvector_ivfflat_single --dataset $1 --batch --runs 1 --force
 
 echo "原版pgvector测试完成"

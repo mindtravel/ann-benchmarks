@@ -28,9 +28,10 @@ import sys
 import threading
 import time
 
-import pgvector.psycopg
+import pgvector_gpu.psycopg
 import psycopg
 import numpy as np
+from pgvector_gpu import VectorBatch
 
 from typing import Dict, Any, Optional
 
@@ -212,6 +213,7 @@ class PGVectorSingle(BaseANN):
         self._index_type = method_param.get('index_type')  # 是否使用GPU
         self._version = method_param.get('version')  # choice: ["ours", "origin"]
         self._cur = None
+        self._index_oid = None  # [新增] 初始化 OID
 
         if metric == "angular":
             self._query = "SELECT id FROM items ORDER BY embedding <=> %s LIMIT %s"
@@ -220,12 +222,17 @@ class PGVectorSingle(BaseANN):
         else:
             raise RuntimeError(f"unknown metric {metric}")
         
-        if metric == "angular":
-            self._parallel_query = "SELECT id FROM items ORDER BY %s <=>> embedding LIMIT %s"
-        elif metric == "euclidean":
-            self._parallel_query = "SELECT id FROM items ORDER BY %s <->> embedding LIMIT %s"
-        else:
-            raise RuntimeError(f"unknown metric {metric}")
+        # [修改] 定义批量查询 SQL，支持直接传递 2D numpy 数组（会自动转换为 vector_batch）
+        # batch_vector_search 只支持 vector_batch 类型，psycopg 会自动将 2D numpy 数组转换为 vector_batch
+        # 注意：不要使用 CAST，让 psycopg 自动处理类型转换
+        self._parallel_query = """
+            SELECT * FROM batch_vector_search(
+                %s::oid,                    -- index OID
+                %s,                         -- query vectors (psycopg 会自动将 2D numpy 数组转换为 vector_batch)
+                %s::integer                 -- k (limit)
+            );
+        """
+
 
 
     def get_metric_properties(self) -> Dict[str, str]:
@@ -303,7 +310,7 @@ class PGVectorSingle(BaseANN):
         conn = psycopg.connect(**psycopg_connect_kwargs)
         self.ensure_pgvector_extension_created(conn)
 
-        pgvector.psycopg.register_vector(conn)
+        pgvector_gpu.psycopg.register_vector(conn)
         cur = conn.cursor()
         cur.execute("DROP TABLE IF EXISTS items")
         cur.execute("CREATE TABLE items (id int, embedding vector(%d))" % dataset.shape[1])
@@ -344,6 +351,18 @@ class PGVectorSingle(BaseANN):
 
         try:
             cur.execute(create_index_str)
+            
+            # [新增] 获取索引 OID 的逻辑
+            # PostgreSQL 默认生成的索引名为 items_embedding_idx (表名_列名_idx)
+            print("Fetching Index OID...")
+            cur.execute("SELECT oid FROM pg_class WHERE relname = 'items_embedding_idx'")
+            result = cur.fetchone()
+            if result:
+                self._index_oid = result[0]
+                print(f"Index OID fetched: {self._index_oid}")
+            else:
+                print("Error: Could not find index OID for 'items_embedding_idx'")
+                
         finally:
             progress_monitor.stop_monitoring_thread()
 
@@ -359,14 +378,27 @@ class PGVectorSingle(BaseANN):
         return [id for id, in self._cur.fetchall()]
 
     def parallel_query(self, X, n):
-        """执行批量向量查询，使用PostgreSQL的批量操作"""
-        self._cur.execute(self._parallel_query, (X, n), binary=True, prepare=True)
-        return [id for id, in self._cur.fetchall()]
+        """执行批量向量查询，使用 fit 阶段获取的 OID"""
+        if self._index_oid is None:
+            raise RuntimeError("Index OID is not set. Make sure fit() has been called.")
+
+        # 直接使用 numpy 数组，让 psycopg 自动转换为 vector_batch
+        # psycopg 的 register_ndarray_dumper 会自动将 2D numpy 数组转换为 vector_batch
+        print("X.shape:", X.shape, "k:", n)
+        
+        if not isinstance(X, np.ndarray) or X.ndim != 2:
+            raise RuntimeError("Input X must be a 2D numpy array.")
+        
+        # 不使用 prepare=True，避免类型解析问题
+        # 直接执行查询，让 PostgreSQL 在运行时解析函数
+        # psycopg 会自动将 2D numpy 数组转换为 vector_batch 类型
+        self._cur.execute(self._parallel_query, (self._index_oid, X, n), binary=True, prepare=False)
+        # batch_vector_search 返回 TABLE(query_id integer, vector_id integer, distance float8)
+        # 我们需要返回 vector_id 列表
+        return [vector_id for query_id, vector_id, distance in self._cur.fetchall()]
          
     def batch_query(self, X, n):
-        """执行批量查询，使用PostgreSQL的批量查询功能"""        
-        # print(f"shape of X: {X.shape} \ttype of X:{type(X)}")
-        # 使用优化的批量查询
+        """执行批量查询"""        
         result = self.parallel_query(X, n)
         self._batch_results = np.array(result).reshape(-1, n).tolist()
         return self._batch_results
