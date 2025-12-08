@@ -11,10 +11,10 @@ elif [ "$ARCH" = "x86_64" ]; then \
 else \
     OPTFLAGS="-march=native"; \
 fi && \
-cd /tmp/pgvector && \
-make clean && \
-make OPTFLAGS="$OPTFLAGS" && \
-make install
+# cd /tmp/pgvector && \
+# make clean && \
+# make OPTFLAGS="$OPTFLAGS" && \
+# make install
 
 pip install psycopg[binary] pgvector
 

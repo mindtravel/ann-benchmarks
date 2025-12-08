@@ -1,6 +1,8 @@
 # 用甲方给的三个数据集测试
-# for dataset in "sift-128-euclidean" "deep-image-96-angular" "TEXT500k-200-angular"
-for dataset in "Deep-image1M-96-angular" #"TEXT500k-200-angular"
+# for dataset in "sift-128-euclidean" "deep-image-96-angular" "text1M-200-angular"
+# for dataset in "text1M-200-angular"
+
+for dataset in "deep-image1M-96-angular" "text1M-200-angular"
 
 do
     # 测试原版pgvector
@@ -14,5 +16,5 @@ do
 
     # TODO:添加pgvector的其他改良版本
     
-    python plot.py --x-scale linear --y-scale log --batch --dataset $dataset
+    python plot.py --x-scale linear --y-scale log --batch --no-pareto-frontier --dataset $dataset
 done
