@@ -6,8 +6,12 @@ protocol/c/fr-*
 install/*.txt
 install/*.yaml
 install/lib-*/
-data/*
-raw-data/*
+
+data/
+data/**
+raw-data/
+raw-data/**
+
 *.class
 
 *.log
