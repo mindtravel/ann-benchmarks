@@ -26,7 +26,7 @@ if [ "$1" = "baseline" ]; then \
     make
     make install
     # fi
-    sudo cp ../pgvector-baseline/vector.so /usr/lib/postgresql/16/lib/vector.so
+    sudo cp ../pgvector-baseline/vector.so [your/path/to/vector.so]
 
 elif  [ "$1" = "ours" ]; then \
     cd ../pgvector
@@ -37,7 +37,7 @@ elif  [ "$1" = "ours" ]; then \
     make install
     # make clean
     # make
-    sudo cp ../pgvector/vector.so /usr/lib/postgresql/16/lib/vector.so
+    sudo cp ../pgvector/vector.so [your/path/to/vector.so]
     # 替换PostgreSQL扩展
 else \
     echo "未知的编译选项"

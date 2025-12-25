@@ -14,7 +14,6 @@ sudo -u postgres psql -d ann -c "ALTER SYSTEM SET max_parallel_workers = 20;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET parallel_tuple_cost = 0.1;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET parallel_setup_cost = 1000.0;"
 
-# 设置日志配置，日志文件在/var/log/postgresql/postgresql-16-main.log 
 echo "设置日志配置..."
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET logging_collector = on;"
 sudo -u postgres psql -d ann -c "ALTER SYSTEM SET log_min_messages = info;"
@@ -48,7 +47,6 @@ python run.py --local --algorithm pgvector_ivfflat_gpu --dataset $1 --force --ru
 
 # 测试jl版本，半途而废了，不用管
 # python run.py --local --algorithm pgvector_ivfjl --dataset $1 --force --runs 1 --batch
-./scripts/tests/filter_postgres_log.sh
 
 echo "ours pgvector测试完成"
 
