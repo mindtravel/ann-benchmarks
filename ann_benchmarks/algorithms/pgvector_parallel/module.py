@@ -30,6 +30,7 @@ import time
 
 import pgvector_gpu.psycopg
 import psycopg
+import psycopg.errors
 import numpy as np
 from pgvector_gpu import VectorBatch
 
@@ -217,23 +218,24 @@ class PGVectorSingle(BaseANN):
 
         if metric == "angular":
             self._query = "SELECT id FROM items ORDER BY embedding <=> %s LIMIT %s"
+            self._parallel_query = """
+                SELECT * FROM batch_vector_search_cos(
+                    %s::oid,                    -- index OID
+                    %s,                         -- query vectors (psycopg 会自动将 2D numpy 数组转换为 vector_batch)
+                    %s::integer                 -- k (limit)
+                );
+            """
         elif metric == "euclidean":
             self._query = "SELECT id FROM items ORDER BY embedding <-> %s LIMIT %s"
+            self._parallel_query = """
+                SELECT * FROM batch_vector_search_l2(
+                    %s::oid,                    -- index OID
+                    %s,                         -- query vectors (psycopg 会自动将 2D numpy 数组转换为 vector_batch)
+                    %s::integer                 -- k (limit)
+                );
+            """
         else:
             raise RuntimeError(f"unknown metric {metric}")
-        
-        # [修改] 定义批量查询 SQL，支持直接传递 2D numpy 数组（会自动转换为 vector_batch）
-        # batch_vector_search 只支持 vector_batch 类型，psycopg 会自动将 2D numpy 数组转换为 vector_batch
-        # 注意：不要使用 CAST，让 psycopg 自动处理类型转换
-        self._parallel_query = """
-            SELECT * FROM batch_vector_search(
-                %s::oid,                    -- index OID
-                %s,                         -- query vectors (psycopg 会自动将 2D numpy 数组转换为 vector_batch)
-                %s::integer                 -- k (limit)
-            );
-        """
-
-
 
     def get_metric_properties(self) -> Dict[str, str]:
         """
@@ -266,7 +268,17 @@ class PGVectorSingle(BaseANN):
                 print("vector extension already exists")
             else:
                 print("vector extension does not exist, creating")
-                cur.execute("CREATE EXTENSION vector")
+                # Use IF NOT EXISTS to avoid errors if extension was created concurrently
+                try:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                except psycopg.errors.DuplicateObject:
+                    # Extension was created by another process, ignore
+                    pass
+                except Exception as e:
+                    # If CREATE EXTENSION fails, try without IF NOT EXISTS as fallback
+                    print(f"Warning: CREATE EXTENSION IF NOT EXISTS failed: {e}")
+                    print("Trying CREATE EXTENSION without IF NOT EXISTS...")
+                    cur.execute("CREATE EXTENSION vector")
 
     def fit(self, dataset):
         if dataset.shape[0] > 1000000:

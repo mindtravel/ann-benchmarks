@@ -265,7 +265,7 @@ def sift(out_fn: str) -> None:
     import tarfile
 
     url = "ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz"
-    fn = os.path.join("data", "sift.tar.tz")
+    fn = os.path.join("data", "sift.tar.gz")
     download(url, fn)
     with tarfile.open(fn, "r:gz") as t:
         train = _get_irisa_matrix(t, "sift/sift_base.fvecs")
