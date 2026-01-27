@@ -399,6 +399,112 @@ def DEEP(out_fn: str,
     print(f"<= 已删除临时文件 {crop_fbin}")
 
 
+def _load_bvecs_vectors(fn: str, n_wanted: int = None) -> numpy.ndarray:
+    """
+    读取 bvecs 格式文件（SIFT1B 数据集格式）
+    
+    bvecs 格式：每个向量以维度（4字节整数）开头，然后是 dim 个字节（unsigned char）
+    
+    Args:
+        fn: bvecs 文件路径
+        n_wanted: 想要读取的向量数量（None 表示读取全部）
+    
+    Returns:
+        numpy.ndarray: 形状为 (n, dim) 的 float32 数组
+    """
+    import struct
+    
+    print(f"读取 bvecs 文件: {fn}")
+    with open(fn, "rb") as f:
+        # 读取第一个向量的维度
+        dim_bytes = f.read(4)
+        if len(dim_bytes) < 4:
+            raise ValueError(f"文件 {fn} 格式错误：无法读取维度")
+        dim = struct.unpack("i", dim_bytes)[0]
+        
+        # 计算文件大小和向量数量
+        f.seek(0, 2)  # 移动到文件末尾
+        file_size = f.tell()
+        f.seek(0)  # 回到开头
+        
+        # 每个向量：4字节（维度）+ dim字节（数据）
+        vector_size = 4 + dim
+        n_total = file_size // vector_size
+        
+        if n_wanted is None:
+            n_wanted = n_total
+        else:
+            n_wanted = min(n_wanted, n_total)
+        
+        print(f"  文件包含 {n_total} 个向量，维度 {dim}，读取前 {n_wanted} 个")
+        
+        # 读取向量数据
+        vectors = numpy.zeros((n_wanted, dim), dtype=numpy.float32)
+        for i in range(n_wanted):
+            dim_check = struct.unpack("i", f.read(4))[0]
+            if dim_check != dim:
+                raise ValueError(f"向量 {i} 维度不匹配：期望 {dim}，实际 {dim_check}")
+            # 读取字节数据并转换为 float32
+            byte_data = numpy.frombuffer(f.read(dim), dtype=numpy.uint8)
+            vectors[i] = byte_data.astype(numpy.float32)
+        
+        return vectors
+
+
+def SIFT1B(out_fn: str,
+           n_total: int = 1_000_000,   # 默认裁剪 1M 条
+           test_size: int = 10_000,
+           count: int = 100,
+           distance: str = "euclidean") -> None:
+    """
+    处理 SIFT1B 数据集（bigann）
+    
+    从 raw_data/sift1B/ 目录读取：
+    - bigann_base.bvecs: 基础向量集（1B 条）
+    - bigann_query.bvecs: 查询向量集
+    
+    Args:
+        out_fn: 输出 HDF5 文件路径
+        n_total: 从基础集中读取的向量数量（默认 1M）
+        test_size: 测试集大小
+        count: 每个查询的最近邻数量
+        distance: 距离度量（"euclidean" 或 "angular"）
+    """
+    import os
+    
+    raw_data_dir = os.path.join("raw_data", "sift1B")
+    base_file = os.path.join(raw_data_dir, "bigann_base.bvecs")
+    query_file = os.path.join(raw_data_dir, "bigann_query.bvecs")
+    
+    # 检查文件是否存在
+    if not os.path.exists(base_file):
+        raise FileNotFoundError(f"找不到基础向量文件: {base_file}")
+    if not os.path.exists(query_file):
+        raise FileNotFoundError(f"找不到查询向量文件: {query_file}")
+    
+    # 读取基础向量（训练集）
+    print(f"读取训练集（前 {n_total} 个向量）...")
+    train = _load_bvecs_vectors(base_file, n_wanted=n_total)
+    
+    # 读取查询向量（测试集）
+    print("读取查询集...")
+    test = _load_bvecs_vectors(query_file, n_wanted=None)
+    
+    # 如果查询集太大，只取前 test_size 个
+    if len(test) > test_size:
+        print(f"查询集包含 {len(test)} 个向量，只使用前 {test_size} 个")
+        test = test[:test_size]
+    
+    # 写入 HDF5
+    print(f"写入 HDF5 文件: {out_fn}")
+    write_output(train, test, out_fn,
+                 distance=distance,
+                 point_type="float",
+                 count=count)
+    
+    print(f"✓ SIFT1B 数据集处理完成: {len(train)} 训练向量, {len(test)} 测试向量")
+
+
 def transform_bag_of_words(filename: str, n_dimensions: int, out_fn: str) -> None:
     import gzip
 
@@ -728,7 +834,7 @@ def TEXT1M_200_angular(out_fn: str = "TEXT1M-200-angular.hdf5",
 
 DATASETS: Dict[str, Callable[[str], None]] = {
     "Deep-image1M-96-angular": lambda out_fn: DEEP(out_fn, n_total=1_000_000, test_size=10_000, count=100, distance="angular"),
-    #"deep-image-96-angular": lambda out_fn: deep_image(n_wanted=1000_000),    
+    "deep-image-96-angular": lambda out_fn: deep_image(n_wanted=1000_000),    
     "fashion-mnist-784-euclidean": fashion_mnist,
     "gist-960-euclidean": gist,
     "glove-25-angular": lambda out_fn: glove(out_fn, 25),
@@ -760,6 +866,12 @@ DATASETS: Dict[str, Callable[[str], None]] = {
     #"TEXT1M-200-angular": lambda out_fn: TEXT(out_fn, n_total=1000_000, test_size=10_000, count=100, distance="angular"),
     "TEXT500k-200-angular": lambda out_fn: TEXT(out_fn, n_total=500_000, test_size=10_000, count=100, distance="angular"),
     "TEXT1M-200-angular": lambda out_fn: TEXT1M_200_angular(out_fn, test_size=10_000, count=100, distance="angular"),
+    # SIFT1B 数据集（支持不同规模）
+    "SIFT10K-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=10_000, test_size=100, count=100, distance="euclidean"),
+    "SIFT1M-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=1_000_000, test_size=10_000, count=100, distance="euclidean"),
+    "SIFT10M-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=10_000_000, test_size=10_000, count=100, distance="euclidean"),
+    "SIFT100M-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=100_000_000, test_size=10_000, count=100, distance="euclidean"),
+    "SIFT1B-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=10_000_000_000, test_size=10_000, count=100, distance="euclidean"),
 }
 
 DATASETS.update({

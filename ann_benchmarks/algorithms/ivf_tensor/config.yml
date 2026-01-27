@@ -1,0 +1,36 @@
+float:
+  any:
+  - base_args: ['@metric']
+    constructor: IVFTensor
+    disabled: false
+    docker_tag: ann-benchmarks-ivf_tensor
+    module: ann_benchmarks.algorithms.ivf_tensor
+    name: ivf_tensor
+    run_groups:
+      # # 默认配置：自动选择 n_lists
+      # default:
+      #   arg_groups: [{}]
+      #   args: {}
+      #   query_args: [[1, 5, 10, 20, 40]]
+      
+      # # 固定 n_lists=100
+      lists-100:
+        arg_groups: [{use_minibatch: true, kmeans_iters: 20, n_lists: 100}]
+        args: {}
+        query_args: [[10, 20, 40]]
+      
+      # 固定 n_lists=1000
+      lists-1000:
+        arg_groups: [{use_minibatch: true, kmeans_iters: 20, n_lists: 1000}]
+        args: {}
+        query_args: [[10, 20, 40]]
+      
+      # 固定 n_lists=10000
+      lists-10000:
+        arg_groups: [{use_minibatch: true, kmeans_iters: 20, n_lists: 10000}]
+        args: {}
+        query_args: [[10, 20, 40]]
+
+
+
+

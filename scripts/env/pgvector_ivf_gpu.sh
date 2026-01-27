@@ -18,7 +18,7 @@ make install
 
 pip install psycopg[binary] pgvector
 
-cd .. && [ ! -d "pgvector-gpu-python" ] && git clone https://github.com/YOUR_USERNAME/pgvector-gpu-python.git; 
-cd pgvector-gpu-python && pip install -e . --quiet
+cd .. && [ ! -d "pgvector_gpu-python" ] && git clone https://github.com/mindtravel/pgvector_gpu-python.git; 
+cd pgvector_gpu-python && pip install -e . --quiet
 
 sudo sed -i 's/local.*postgres.*peer/local all postgres trust/' /etc/postgresql/16/main/pg_hba.conf
