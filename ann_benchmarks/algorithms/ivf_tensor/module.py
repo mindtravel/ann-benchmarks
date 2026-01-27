@@ -1,7 +1,7 @@
 """
 IVF-Tensor: GPU-accelerated IVF-Flat search using CUDA
 
-This module wraps the CUDA implementation from pgvector for use in ann-benchmarks.
+This module wraps the CUDA implementation from ivftensor for use in ann-benchmarks.
 It uses pybind11 Python bindings to call the compiled CUDA library functions.
 """
 
@@ -13,11 +13,11 @@ from typing import Optional, List
 from ..base.module import BaseANN
 
 # 尝试加载 IVFTensor Python 扩展模块
-pgvector_path = "/home/diy/lzx/pgvector"
+ivftensor_path = "/home/diy/lzx/ivftensor"
 project_path = "/home/diy/lzx/ann-benchmarks"
 
 # 可能的模块路径
-module_paths = os.path.join(pgvector_path, "python/build")
+module_paths = os.path.join(ivftensor_path, "python/build")
 sys.path.insert(0, module_paths)
 import PyIVFTensor
 

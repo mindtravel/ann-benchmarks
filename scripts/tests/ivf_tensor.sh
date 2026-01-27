@@ -1,5 +1,5 @@
 # !/bin/bash
-# ours pgvector测试脚本
+# ours ivftensor测试脚本
 echo "ours ivf_tensor测试开始..."
 
 # 测试GPU版本

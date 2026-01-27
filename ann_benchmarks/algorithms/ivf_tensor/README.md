@@ -1,6 +1,6 @@
 # IVF-Tensor: GPU-Accelerated IVF-Flat Search
 
-This module provides a Python wrapper for the CUDA-based IVF-Flat search implementation from pgvector.
+This module provides a Python wrapper for the CUDA-based IVF-Flat search implementation from ivftensor.
 
 ## Features
 
@@ -45,9 +45,9 @@ print(result)  # List of indices
 
 To enable GPU acceleration, you need to:
 
-1. **Compile the CUDA library** from pgvector:
+1. **Compile the CUDA library** from ivftensor:
    ```bash
-   cd /home/diy/lzx/pgvector
+   cd /home/diy/lzx/ivftensor
    # Build the shared library that exports ivf_search_pipeline
    ```
 
