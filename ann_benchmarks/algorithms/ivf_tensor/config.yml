@@ -15,19 +15,19 @@ float:
       
       # # 固定 n_lists=100（batch_size 为查询时每批条数，None 表示一次全量）
       lists-100:
-        arg_groups: [{use_minibatch: true, kmeans_iters: 20, n_lists: 100, batch_size: 1000}]
+        arg_groups: [{kmeans_iters: 20, n_lists: 100, batch_size: 1000}]
         args: {}
         query_args: [[10, 20, 40]]
       
       # 固定 n_lists=1000
       lists-1000:
-        arg_groups: [{use_minibatch: true, kmeans_iters: 20, n_lists: 1000, batch_size: 1000}]
+        arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 1000}]
         args: {}
         query_args: [[10, 20, 40]]
       
       # 固定 n_lists=10000
       lists-10000:
-        arg_groups: [{use_minibatch: true, kmeans_iters: 20, n_lists: 10000, batch_size: 1000}]
+        arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 1000}]
         args: {}
         query_args: [[10, 20, 40]]
 

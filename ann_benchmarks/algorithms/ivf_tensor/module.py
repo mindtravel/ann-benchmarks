@@ -43,7 +43,7 @@ class IVFTensor(BaseANN):
         self._metric = metric
         self._n_lists = method_param.get('n_lists', None)  # Will be set in fit()
         self._kmeans_iters = method_param.get('kmeans_iters', 20)
-        self._use_minibatch = method_param.get('use_minibatch', False)
+        self._use_minibatch = True # 默认使用minibatch
         self._batch_size = method_param.get('batch_size', None)  # 在 config.yml 的 arg_groups 中配置
         self._n_probes = 1  # Default, will be set via set_query_arguments
         
