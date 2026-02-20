@@ -38,11 +38,13 @@ class IVFTensor(BaseANN):
                 - n_lists: Number of clusters (default: sqrt(k))
                 - kmeans_iters: K-means iterations (default: 20)
                 - use_minibatch: Use minibatch K-means (default: False)
+                - batch_size: In batch mode, query in chunks of this size (set in config.yml; None = all at once).
         """
         self._metric = metric
         self._n_lists = method_param.get('n_lists', None)  # Will be set in fit()
         self._kmeans_iters = method_param.get('kmeans_iters', 20)
         self._use_minibatch = method_param.get('use_minibatch', False)
+        self._batch_size = method_param.get('batch_size', None)  # 在 config.yml 的 arg_groups 中配置
         self._n_probes = 1  # Default, will be set via set_query_arguments
         
         # Internal state
@@ -181,7 +183,8 @@ class IVFTensor(BaseANN):
     
     def batch_query(self, X: np.ndarray, k: int) -> None:
         """
-        Perform batch queries.
+        Perform batch queries. If self._batch_size is set, runs in batch mode:
+        loops over X in chunks of _batch_size and concatenates results (for pipeline optimization later).
         
         Args:
             X: Query vectors array of shape (n_queries, n_features)
@@ -190,7 +193,15 @@ class IVFTensor(BaseANN):
         if self._reordered_data is None:
             raise RuntimeError("Index not fitted. Call fit() first.")
         
-        self._batch_results = self._batch_query_cuda(X, k)
+        if self._batch_size is not None and self._batch_size > 0:
+            all_results = []
+            for start in range(0, len(X), self._batch_size):
+                chunk = X[start : start + self._batch_size]
+                chunk_results = self._batch_query_cuda(chunk, k)
+                all_results.extend(chunk_results)
+            self._batch_results = all_results
+        else:
+            self._batch_results = self._batch_query_cuda(X, k)
     
     def _batch_query_cuda(self, X: np.ndarray, k: int) -> List[List[int]]:
         """
@@ -248,7 +259,14 @@ class IVFTensor(BaseANN):
     def get_batch_results(self) -> List[List[int]]:
         """Get batch query results."""
         return self._batch_results if hasattr(self, '_batch_results') else []
-    
+
+    def set_batch_size(self, batch_size: Optional[int]) -> None:
+        """Optional override of internal batch size (primary source is config.yml)."""
+        self._batch_size = batch_size
+
     def __str__(self) -> str:
-        return f"IVFTensor(n_lists={self._n_lists}, n_probes={self._n_probes}, metric={self._metric})"
+        s = f"IVFTensor(n_lists={self._n_lists}, n_probes={self._n_probes}, metric={self._metric}"
+        if self._batch_size is not None:
+            s += f", batch_size={self._batch_size}"
+        return s + ")"
 
