@@ -16,7 +16,6 @@ from ..base.module import BaseANN
 ivftensor_path = "/home/diy/lzx/ivftensor"
 project_path = "/home/diy/lzx/ann-benchmarks"
 
-# 可能的模块路径
 module_paths = os.path.join(ivftensor_path, "python/build")
 sys.path.insert(0, module_paths)
 import PyIVFTensor
@@ -43,8 +42,12 @@ class IVFTensor(BaseANN):
         self._metric = metric
         self._n_lists = method_param.get('n_lists', None)  # Will be set in fit()
         self._kmeans_iters = method_param.get('kmeans_iters', 20)
-        self._use_minibatch = True # 默认使用minibatch
+        self._use_minibatch = method_param.get('use_minibatch', False)
         self._batch_size = method_param.get('batch_size', None)  # 在 config.yml 的 arg_groups 中配置
+        self._use_blocks = method_param.get('use_blocks', False)  # BCS 平衡 block 模式
+        self._std_var_ratio = method_param.get('std_var_ratio', 0.2)
+        # use_fp16: 粗筛用 fp16（量化在 host）；可由 config 或环境变量 IVF_TENSOR_USE_FP16=1 启用
+        self._use_fp16 = method_param.get('use_fp16', False) or (os.environ.get('IVF_TENSOR_USE_FP16', '0') == '1')
         self._n_probes = 1  # Default, will be set via set_query_arguments
         
         # Internal state
@@ -183,8 +186,8 @@ class IVFTensor(BaseANN):
     
     def batch_query(self, X: np.ndarray, k: int) -> None:
         """
-        Perform batch queries. If self._batch_size is set, runs in batch mode:
-        loops over X in chunks of _batch_size and concatenates results (for pipeline optimization later).
+        Perform batch queries. Batch size is passed to ivftensor (query_batch_size);
+        ivftensor does internal batching in C++ (pipeline optimization can be added there).
         
         Args:
             X: Query vectors array of shape (n_queries, n_features)
@@ -192,16 +195,7 @@ class IVFTensor(BaseANN):
         """
         if self._reordered_data is None:
             raise RuntimeError("Index not fitted. Call fit() first.")
-        
-        if self._batch_size is not None and self._batch_size > 0:
-            all_results = []
-            for start in range(0, len(X), self._batch_size):
-                chunk = X[start : start + self._batch_size]
-                chunk_results = self._batch_query_cuda(chunk, k)
-                all_results.extend(chunk_results)
-            self._batch_results = all_results
-        else:
-            self._batch_results = self._batch_query_cuda(X, k)
+        self._batch_results = self._batch_query_cuda(X, k)
     
     def _batch_query_cuda(self, X: np.ndarray, k: int) -> List[List[int]]:
         """
@@ -225,35 +219,25 @@ class IVFTensor(BaseANN):
         # 准备数据（展平）
         cluster_vectors_flat = reordered_data.flatten()
         cluster_centers_flat = centroids.flatten()
-        
-        # 执行 GPU 搜索（带回表）
-        # reordered_indices 会被传递到 GPU 进行回表操作，返回的 indices 已经是原始索引
-        indices, distances = self._ivf_searcher.search(
+        cluster_sizes = cluster_counts.astype(np.int32)
+        reordered_indices_flat = reordered_indices.astype(np.int32)
+
+        # BCS 平衡 block 模式：内部 rebalance + block lookup
+        indices, distances = self._ivf_searcher.search_with_blocks(
             X,
-            cluster_counts.astype(np.int32),  # cluster sizes
-            cluster_vectors_flat,              # cluster vectors (flattened)
-            cluster_centers_flat,              # cluster centers (flattened)
+            cluster_sizes,
+            cluster_vectors_flat,
+            cluster_centers_flat,
             n_probes=self._n_probes,
             k=k,
             distance_mode=distance_mode,
-            reordered_indices=reordered_indices.astype(np.int32)  # 传入回表映射数组
+            reordered_indices=reordered_indices_flat,
+            std_var_ratio=self._std_var_ratio,
+            use_fp16=self._use_fp16
         )
-        # print("distances", np.sqrt(distances[0][:k]))
-        # print("indices", indices[0][:k])  # indices 是整数数组，不需要 sqrt
 
-        # if(indices.shape[0] != X.shape[0]):
-        #     raise ValueError(f"Invalid indices shape: {indices.shape}")
-        # if(indices.shape[1] != k):
-        #     raise ValueError(f"Invalid indices shape: {indices.shape}")
         
-        # 检查每一行 indices 是否有重复索引，如果有则输出（打印）重复信息
-        # for i, row in enumerate(indices):
-        #     unique_count = len(np.unique(row))
-        #     if unique_count != len(row):
-        #         duplicates = set([x for x in row if list(row).count(x) > 1])
-        #         raise ValueError(f"Duplicate indices found in query {i}: {duplicates}. Row: {row}")
-        results = indices.tolist()
-        
+        results = indices.tolist()        
         return results
     
     def get_batch_results(self) -> List[List[int]]:
@@ -268,5 +252,7 @@ class IVFTensor(BaseANN):
         s = f"IVFTensor(n_lists={self._n_lists}, n_probes={self._n_probes}, metric={self._metric}"
         if self._batch_size is not None:
             s += f", batch_size={self._batch_size}"
+        if self._use_fp16:
+            s += ", use_fp16=True"
         return s + ")"
 

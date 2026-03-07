@@ -13,6 +13,7 @@ data/*
 
 results/*
 !results/*.png
+report/
 
 venv
 

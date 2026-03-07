@@ -13,23 +13,23 @@ float:
       #   args: {}
       #   query_args: [[1, 5, 10, 20, 40]]
       
-      # # 固定 n_lists=100（batch_size 为查询时每批条数，None 表示一次全量）
-      lists-100:
-        arg_groups: [{kmeans_iters: 20, n_lists: 100, batch_size: 1000}]
-        args: {}
-        query_args: [[10, 20, 40]]
+      # # 固定 n_lists=100（batch_size 为查询时每批条数，None 表示一次全量）；use_fp16 强制粗筛 fp16
+      # lists-100:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 100, batch_size: 10, use_fp16: true}]
+      #   args: {}
+      #   query_args: [[10, 20, 40]]
       
       # 固定 n_lists=1000
       lists-1000:
-        arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 1000}]
+        arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 10, use_fp16: true}]
         args: {}
-        query_args: [[10, 20, 40]]
+        query_args: [[100, 200, 400]]
       
       # 固定 n_lists=10000
-      lists-10000:
-        arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 1000}]
-        args: {}
-        query_args: [[10, 20, 40]]
+      # lists-10000:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 10, use_fp16: true}]
+      #   args: {}
+      #   query_args: [[1000, 2000, 4000]]
 
 
 

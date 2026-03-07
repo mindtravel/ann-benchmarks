@@ -256,6 +256,11 @@ def create_workers_and_execute(definitions: List[Definition], args: argparse.Nam
     memory_margin = 500e6  # reserve some extra memory for misc stuff
     mem_limit = int((psutil.virtual_memory().available - memory_margin) / args.parallelism)
 
+    # When profiling with nsys, run in main process so CUDA/NVTX are traced (nsys does not trace child processes).
+    if args.parallelism == 1 and os.environ.get("NSYS_PROFILE") == "1":
+        run_worker(1, mem_limit, args, task_queue)
+        return
+
     try:
         workers = [multiprocessing.Process(target=run_worker, args=(i + 1, mem_limit, args, task_queue)) for i in range(args.parallelism)]
         [worker.start() for worker in workers]
