@@ -5,8 +5,10 @@ This module wraps the CUDA implementation from ivftensor for use in ann-benchmar
 It uses pybind11 Python bindings to call the compiled CUDA library functions.
 """
 
+import json
 import os
 import sys
+import time
 import numpy as np
 from typing import Optional, List
 
@@ -28,6 +30,7 @@ class IVFTensor(BaseANN):
     """
     
     def __init__(self, metric: str, method_param: dict):
+        # print("init")
         """
         Initialize IVF-Tensor algorithm.
         
@@ -39,15 +42,19 @@ class IVFTensor(BaseANN):
                 - use_minibatch: Use minibatch K-means (default: False)
                 - batch_size: In batch mode, query in chunks of this size (set in config.yml; None = all at once).
         """
-        self._metric = metric
+        # self._metric = metric
+        self._metric = "euclidean"
         self._n_lists = method_param.get('n_lists', None)  # Will be set in fit()
         self._kmeans_iters = method_param.get('kmeans_iters', 20)
         self._use_minibatch = method_param.get('use_minibatch', False)
         self._batch_size = method_param.get('batch_size', None)  # 在 config.yml 的 arg_groups 中配置
         self._use_blocks = method_param.get('use_blocks', False)  # BCS 平衡 block 模式
         self._std_var_ratio = method_param.get('std_var_ratio', 0.2)
-        # use_fp16: 粗筛用 fp16（量化在 host）；可由 config 或环境变量 IVF_TENSOR_USE_FP16=1 启用
-        self._use_fp16 = method_param.get('use_fp16', False) or (os.environ.get('IVF_TENSOR_USE_FP16', '0') == '1')
+        self._fp16_coarse = method_param.get('fp16_coarse', False)
+        self._fp16_fine = method_param.get('fp16_fine', False)
+        self._use_interleaved = method_param.get('use_interleaved', True)  # 默认启用 interleaved 精筛
+        # 懒加载：精筛向量按 chunk 从 CPU 上传，不占常驻全量簇向量显存（须 use_interleaved=True）
+        self._lazy_upload_vectors = method_param.get('lazy_upload_vectors', True)
         self._n_probes = 1  # Default, will be set via set_query_arguments
         
         # Internal state
@@ -56,13 +63,15 @@ class IVFTensor(BaseANN):
         self._vector_dim = None
         self._centroids = None
         self._cluster_info = None
-        self._reordered_data = None
-        
+        self._reordered_data = None  # C++ 侧已按 use_interleaved 存储，1D 或 2D
+
         # IVFTensor 索引和数据集对象
         self._ivf_dataset = None
         self._ivf_searcher = None
     
     def fit(self, X: np.ndarray) -> None:
+        # print("here")
+        
         """
         Fit the IVF-Tensor index to the data.
         
@@ -103,7 +112,7 @@ class IVFTensor(BaseANN):
         else:
             raise ValueError(f"Invalid metric: {self._metric}")
         
-        # 初始化数据集（使用 K-means 聚类）
+        # 初始化数据集（使用 K-means 聚类）；use_interleaved 时 C++ 侧直接存储 interleaved 布局
         print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...")
         self._ivf_dataset.init_with_kmeans(
             X,
@@ -111,11 +120,12 @@ class IVFTensor(BaseANN):
             kmeans_iters=self._kmeans_iters,
             use_minibatch=self._use_minibatch,
             distance_mode=distance_mode,
+            use_interleaved=self._use_interleaved,
         )
-        # 获取聚类结果（用于后续搜索）
-        (self._reordered_data, self._reordered_indices, self._centroids, 
+        # 获取聚类结果（用于后续搜索）；interleaved 时为 1D，否则为 2D row-major
+        (self._reordered_data, self._reordered_indices, self._centroids,
          cluster_offsets, cluster_counts, n_clusters) = self._ivf_dataset.get_data()
-        
+
         # 保存聚类信息（用于索引转换）
         self._cluster_info = {
             'k': n_clusters,
@@ -123,7 +133,7 @@ class IVFTensor(BaseANN):
             'counts': cluster_counts.astype(np.int32),
             'reordered_indices': self._reordered_indices.astype(np.int32)
         }
-        
+        # print("here")
         # 创建搜索器
         self._ivf_searcher = PyIVFTensor.IVFSearcher()
         # INSERT_YOUR_CODE
@@ -203,11 +213,13 @@ class IVFTensor(BaseANN):
         """
         if self._ivf_searcher is None or self._ivf_dataset is None:
             raise RuntimeError("Index not initialized. Call fit() first.")
-        
+        if self._lazy_upload_vectors and not self._use_interleaved:
+            raise ValueError("lazy_upload_vectors requires use_interleaved=True")
+
         # 获取聚类数据
-        (reordered_data, reordered_indices, centroids, 
+        (reordered_data, reordered_indices, centroids,
          cluster_offsets, cluster_counts, n_clusters) = self._ivf_dataset.get_data()
-        
+
         # 确定距离模式
         if(self._metric == "angular"):
             distance_mode = PyIVFTensor.DISTANCE_COSINE
@@ -215,29 +227,92 @@ class IVFTensor(BaseANN):
             distance_mode = PyIVFTensor.DISTANCE_L2
         else:
             raise ValueError(f"Invalid metric: {self._metric}")
-        
-        # 准备数据（展平）
-        cluster_vectors_flat = reordered_data.flatten()
-        cluster_centers_flat = centroids.flatten()
+
+        # 准备 cluster_vectors：C++ 侧已按 use_interleaved 存储，interleaved 时为 1D，否则为 2D 需展平
+        # 聚类中心必须保持 [n_clusters, n_dim] 二维，PyIVFTensor.search / ivf_search 按行主序读 centroids
+        cluster_vectors_flat = reordered_data if reordered_data.ndim == 1 else reordered_data.flatten()
         cluster_sizes = cluster_counts.astype(np.int32)
         reordered_indices_flat = reordered_indices.astype(np.int32)
 
+        n_total_vectors = int(cluster_sizes.sum())
+        n_dim = X.shape[1]
+
+        # #region agent log
+        try:
+            with open("/home/diy/.cursor/debug-e66361.log", "a", encoding="utf-8") as _f:
+                _f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "e66361",
+                            "hypothesisId": "H1-H2-H4",
+                            "location": "ivf_tensor/module.py:_batch_query_cuda",
+                            "message": "pre_pybind_search",
+                            "data": {
+                                "X_shape": list(X.shape),
+                                "reordered_data_shape": list(reordered_data.shape),
+                                "reordered_data_ndim": int(reordered_data.ndim),
+                                "cluster_vectors_flat_shape": list(cluster_vectors_flat.shape),
+                                "centroids_shape": list(centroids.shape),
+                                "reordered_indices_shape": list(reordered_indices_flat.shape),
+                                "cluster_sizes_shape": list(cluster_sizes.shape),
+                                "cluster_sizes_sum": int(cluster_sizes.sum()),
+                                "n_dim": int(n_dim),
+                                "n_clusters_from_get_data": int(n_clusters),
+                                "distance_mode": int(distance_mode),
+                                "n_probes": int(self._n_probes),
+                                "k": int(k),
+                                "use_interleaved": bool(self._use_interleaved),
+                                "lazy_upload_vectors": bool(self._lazy_upload_vectors),
+                                "fp16_coarse": bool(self._fp16_coarse),
+                                "fp16_fine": bool(self._fp16_fine),
+                                "use_blocks": bool(self._use_blocks),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion
+
         # BCS 平衡 block 模式：内部 rebalance + block lookup
-        indices, distances = self._ivf_searcher.search_with_blocks(
+        # indices, distances = self._ivf_searcher.search_with_blocks(
+        #     X,
+        #     cluster_sizes,
+        #     cluster_vectors_flat,
+        #     centroids,
+        #     n_probes=self._n_probes,
+        #     k=k,
+        #     distance_mode=distance_mode,
+        #     reordered_indices=reordered_indices_flat,
+        #     std_var_ratio=self._std_var_ratio,
+        #     fp16_coarse=self._fp16_coarse,
+        #     fp16_fine=self._fp16_fine
+        # )
+        
+        # print("k:", k)
+        
+        indices, distances = self._ivf_searcher.search(
             X,
             cluster_sizes,
             cluster_vectors_flat,
-            cluster_centers_flat,
+            centroids,
             n_probes=self._n_probes,
             k=k,
             distance_mode=distance_mode,
             reordered_indices=reordered_indices_flat,
+            query_batch_size=0,
+            fp16_coarse=self._fp16_coarse,
+            fp16_fine=self._fp16_fine,
+            use_blocks=self._use_blocks,
             std_var_ratio=self._std_var_ratio,
-            use_fp16=self._use_fp16
+            use_interleaved=self._use_interleaved,
+            lazy_upload_vectors=self._lazy_upload_vectors,
         )
 
-        
-        results = indices.tolist()        
+        results = indices.tolist()
         return results
     
     def get_batch_results(self) -> List[List[int]]:
@@ -252,7 +327,9 @@ class IVFTensor(BaseANN):
         s = f"IVFTensor(n_lists={self._n_lists}, n_probes={self._n_probes}, metric={self._metric}"
         if self._batch_size is not None:
             s += f", batch_size={self._batch_size}"
-        if self._use_fp16:
-            s += ", use_fp16=True"
+        if self._fp16_coarse or self._fp16_fine:
+            s += f", fp16_coarse={self._fp16_coarse}, fp16_fine={self._fp16_fine}"
+        if self._lazy_upload_vectors:
+            s += ", lazy_upload_vectors=True"
         return s + ")"
 

@@ -1,9 +1,14 @@
-# !/bin/bash
+#!/bin/bash
 # ours ivftensor测试脚本（batch_size 在 ann_benchmarks/algorithms/ivf_tensor/config.yml 中配置）
 # 用法: ./scripts/tests/ivf_tensor.sh <dataset>
+# 与 PyIVFTensor（python3.10 编译）对齐：默认 python3.10，可用 PYTHON_BIN 覆盖
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$ANN_ROOT"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.10 2>/dev/null || command -v python3)}"
 echo "ours ivf_tensor测试开始..."
 
-python run.py --local --algorithm ivf_tensor --dataset "$1" --force --runs 1 --batch
+"$PYTHON_BIN" run.py --local --algorithm ivf_tensor --dataset "$1" --force --runs 1 --batch
 
 echo "ours ivf_tensor测试完成"
 
