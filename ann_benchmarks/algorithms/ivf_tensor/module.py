@@ -112,16 +112,29 @@ class IVFTensor(BaseANN):
         else:
             raise ValueError(f"Invalid metric: {self._metric}")
         
-        # 初始化数据集（使用 K-means 聚类）；use_interleaved 时 C++ 侧直接存储 interleaved 布局
-        print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...")
-        self._ivf_dataset.init_with_kmeans(
-            X,
-            n_clusters=self._n_lists,
-            kmeans_iters=self._kmeans_iters,
-            use_minibatch=self._use_minibatch,
-            distance_mode=distance_mode,
-            use_interleaved=self._use_interleaved,
-        )
+        # 控制是否使用均衡层次聚类（True）还是普通 K-means（False）
+        use_hierarchical = True
+
+        if use_hierarchical:
+            print(f"Running Balanced Hierarchical Clustering ({self._kmeans_iters} iterations)...")
+            self._ivf_dataset.init_with_hierarchical(
+                X,
+                n_clusters=self._n_lists,
+                kmeans_iters=self._kmeans_iters,
+                use_minibatch=self._use_minibatch,
+                distance_mode=distance_mode,
+            )
+        else:
+            # 初始化数据集（使用 K-means 聚类）；use_interleaved 时 C++ 侧直接存储 interleaved 布局
+            print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...")
+            self._ivf_dataset.init_with_kmeans(
+                X,
+                n_clusters=self._n_lists,
+                kmeans_iters=self._kmeans_iters,
+                use_minibatch=self._use_minibatch,
+                distance_mode=distance_mode,
+                use_interleaved=self._use_interleaved,
+            )
         # 获取聚类结果（用于后续搜索）；interleaved 时为 1D，否则为 2D row-major
         (self._reordered_data, self._reordered_indices, self._centroids,
          cluster_offsets, cluster_counts, n_clusters) = self._ivf_dataset.get_data()
