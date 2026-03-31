@@ -89,11 +89,47 @@ float:
       #   arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 10000, fp16_coarse: false, fp16_fine: true}]
       #   args: {}
       #   query_args: [[1,2]]
+      
+      # 4_fp16_100000:
+      #   arg_groups: [{kmeans_iters: 5, n_lists: 100000, batch_size: 10000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[100]]
+      #   # query_args: [[10, 20, 50, 100, 200]]
 
-      4_fp16_10000:
-        arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 10000, fp16_coarse: true, fp16_fine: false}]
+      # 4_fp16_10000:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[100]]
+
+      # 4_fp16_5000:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 5000, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[50]]
+
+      # 4_fp16_2000:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 2000, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[20]]
+
+      4_fp16_1000:
+        arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
         args: {}
-        query_args: [[1,2]]
+        query_args: [[10]]
+
+      # 4_fp16_500:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 500, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[5]]
+
+      # 4_fp16_200:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 200, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[2]]
+
+      # 4_fp16_100:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 100, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   args: {}
+      #   query_args: [[1]]
 
       # fp16_100:
       #   # arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 10}]

@@ -20,7 +20,15 @@ project_path = "/home/diy/lzx/ann-benchmarks"
 
 module_paths = os.path.join(ivftensor_path, "python/build")
 sys.path.insert(0, module_paths)
+sys.path.insert(0, os.path.join(ivftensor_path, "python"))
 import PyIVFTensor
+from cluster_cache import ClusterCache
+
+# 默认缓存目录，可通过环境变量 IVF_CLUSTER_CACHE_DIR 覆盖
+_CLUSTER_CACHE_DIR = os.environ.get(
+    "IVF_CLUSTER_CACHE_DIR",
+    os.path.join(project_path, "data", "cluster_cache")
+)
 
 class IVFTensor(BaseANN):
     """
@@ -41,6 +49,8 @@ class IVFTensor(BaseANN):
                 - kmeans_iters: K-means iterations (default: 20)
                 - use_minibatch: Use minibatch K-means (default: False)
                 - batch_size: In batch mode, query in chunks of this size (set in config.yml; None = all at once).
+                - dataset_name: 数据集名称，用于聚类缓存 key（默认 "unknown"）
+                - cache_cluster: 是否启用聚类缓存（默认 True）
         """
         # self._metric = metric
         self._metric = "euclidean"
@@ -56,6 +66,11 @@ class IVFTensor(BaseANN):
         # 懒加载：精筛向量按 chunk 从 CPU 上传，不占常驻全量簇向量显存（须 use_interleaved=True）
         self._lazy_upload_vectors = method_param.get('lazy_upload_vectors', True)
         self._n_probes = 1  # Default, will be set via set_query_arguments
+
+        # 聚类缓存
+        self._dataset_name = method_param.get('dataset_name', 'unknown')
+        self._cache_cluster = method_param.get('cache_cluster', True)
+        self._cluster_cache = ClusterCache(_CLUSTER_CACHE_DIR)
         
         # Internal state
         self._dataset = None
@@ -93,87 +108,112 @@ class IVFTensor(BaseANN):
         print(f"Building IVF-Tensor index: {self._n_vectors} vectors, {self._vector_dim} dims, {self._n_lists} clusters")
         # Use CUDA implementation
         self._fit_cuda(X)
-    
+
     def _fit_cuda(self, X: np.ndarray) -> None:
         """
         Fit using CUDA implementation.
-        
-        This performs K-means clustering on GPU and loads the dataset.
+        命中缓存时加载聚类决策（centroids + reordered_indices），
+        用原始数据 X 重新完成重排和 interleaved 构建，跳过 K-means。
         """
-        
-        # 创建 ClusterDataset 对象
-        self._ivf_dataset = PyIVFTensor.ClusterDataset()
-        
-        # 确定距离模式
-        if(self._metric == "angular"):
+        if self._metric == "angular":
             distance_mode = PyIVFTensor.DISTANCE_COSINE
-        elif(self._metric == "euclidean"):
+        elif self._metric == "euclidean":
             distance_mode = PyIVFTensor.DISTANCE_L2
         else:
             raise ValueError(f"Invalid metric: {self._metric}")
-        
-        # 控制是否使用均衡层次聚类（True）还是普通 K-means（False）
-        use_hierarchical = True
 
-        if use_hierarchical:
-            print(f"Running Balanced Hierarchical Clustering ({self._kmeans_iters} iterations)...")
-            self._ivf_dataset.init_with_hierarchical(
-                X,
-                n_clusters=self._n_lists,
-                kmeans_iters=self._kmeans_iters,
-                use_minibatch=self._use_minibatch,
-                distance_mode=distance_mode,
+        use_hierarchical = False  # 切换聚类算法时改这里
+
+        algo_tag = (
+            f"{'hierarchical' if use_hierarchical else 'kmeans-gpu'}"
+            f"_iters{self._kmeans_iters}"
+            f"_{'minibatch' if self._use_minibatch else 'full'}"
+        )
+
+        # dataset_name 未设置时禁用缓存，避免不同数据集互相污染
+        cache_enabled = self._cache_cluster and self._dataset_name != 'unknown'
+        if self._cache_cluster and self._dataset_name == 'unknown':
+            print("[ClusterCache] 警告: dataset_name 未设置，跳过缓存（传入 dataset_name 参数以启用）")
+
+        # ---- 尝试从缓存加载聚类决策 ----
+        cached = self._cluster_cache.load(self._dataset_name, self._n_lists, algo_tag) \
+            if cache_enabled else None
+
+        self._ivf_dataset = PyIVFTensor.ClusterDataset()
+
+        if cached is not None:
+            (centroids, reordered_indices, cluster_counts, cluster_offsets), _ = cached
+            # 用缓存的聚类决策 + 原始数据 X 重建 ClusterDataset
+            # init_from_existing 内部按 reordered_indices 重排，并按需构建 interleaved
+            self._ivf_dataset.init_from_existing(
+                reordered_data    = X,
+                reordered_indices = reordered_indices.astype(np.int32),
+                centroids         = centroids,
+                cluster_offsets   = cluster_offsets.astype(np.int64),
+                cluster_counts    = cluster_counts.astype(np.int32),
+                use_interleaved   = self._use_interleaved,
             )
         else:
-            # 初始化数据集（使用 K-means 聚类）；use_interleaved 时 C++ 侧直接存储 interleaved 布局
-            print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...")
-            self._ivf_dataset.init_with_kmeans(
-                X,
-                n_clusters=self._n_lists,
-                kmeans_iters=self._kmeans_iters,
-                use_minibatch=self._use_minibatch,
-                distance_mode=distance_mode,
-                use_interleaved=self._use_interleaved,
-            )
-        # 获取聚类结果（用于后续搜索）；interleaved 时为 1D，否则为 2D row-major
+            # ---- 执行聚类 ----
+            t0 = time.time()
+            if use_hierarchical:
+                print(f"Running Balanced Hierarchical Clustering ({self._kmeans_iters} iterations)...")
+                self._ivf_dataset.init_with_hierarchical(
+                    X,
+                    n_clusters=self._n_lists,
+                    kmeans_iters=self._kmeans_iters,
+                    use_minibatch=self._use_minibatch,
+                    distance_mode=distance_mode,
+                )
+            else:
+                print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...")
+                self._ivf_dataset.init_with_kmeans(
+                    X,
+                    n_clusters=self._n_lists,
+                    kmeans_iters=self._kmeans_iters,
+                    use_minibatch=self._use_minibatch,
+                    distance_mode=distance_mode,
+                    use_interleaved=self._use_interleaved,
+                )
+            elapsed = time.time() - t0
+            print(f"Clustering done in {elapsed:.1f}s")
+
+            # 取聚类决策并写入缓存（只存 centroids + indices，不存向量数据）
+            (_, reordered_indices, centroids,
+             cluster_offsets, cluster_counts, _) = self._ivf_dataset.get_data()
+
+            if cache_enabled:
+                self._cluster_cache.save(
+                    self._dataset_name, self._n_lists, algo_tag,
+                    centroids         = centroids,
+                    reordered_indices = reordered_indices,
+                    cluster_counts    = cluster_counts,
+                    cluster_offsets   = cluster_offsets,
+                    meta={
+                        "kmeans_iters": self._kmeans_iters,
+                        "use_minibatch": self._use_minibatch,
+                        "metric": self._metric,
+                        "elapsed_sec": round(elapsed, 2),
+                        "cluster_size_min": int(cluster_counts.min()),
+                        "cluster_size_max": int(cluster_counts.max()),
+                        "cluster_size_mean": round(float(cluster_counts.mean()), 1),
+                    },
+                )
+
+        # 统一从 dataset 拿最终数据
         (self._reordered_data, self._reordered_indices, self._centroids,
          cluster_offsets, cluster_counts, n_clusters) = self._ivf_dataset.get_data()
 
-        # 保存聚类信息（用于索引转换）
         self._cluster_info = {
             'k': n_clusters,
-            'offsets': cluster_offsets.astype(np.int32),  # 转换为 int32（注意：原始是 long long）
+            'offsets': cluster_offsets.astype(np.int32),
             'counts': cluster_counts.astype(np.int32),
-            'reordered_indices': self._reordered_indices.astype(np.int32)
+            'reordered_indices': self._reordered_indices.astype(np.int32),
         }
-        # print("here")
-        # 创建搜索器
         self._ivf_searcher = PyIVFTensor.IVFSearcher()
-        # INSERT_YOUR_CODE
-        def plot_cluster_counts_distribution(cluster_counts, save_path):
-            """
-            绘制cluster_counts的分布图，并保存到指定路径。
-            """
-            try:
-                import matplotlib.pyplot as plt
-            except ImportError:
-                print("matplotlib未安装，无法绘图(跳过)。")
-                return
-            plt.figure(figsize=(8, 4))
-            plt.hist(cluster_counts, bins=50, color='skyblue', edgecolor='black')
-            plt.title("Cluster Counts Distribution")
-            plt.xlabel("Number of vectors in cluster")
-            plt.ylabel("Number of clusters")
-            plt.grid(True, linestyle='--', alpha=0.7)
-            plt.tight_layout()
-            plt.savefig(save_path)
-            plt.close()
+        print(f"Cluster sizes: min={cluster_counts.min()} max={cluster_counts.max()} "
+              f"mean={cluster_counts.mean():.1f} empty={int((cluster_counts == 0).sum())}")
 
-        if not os.path.exists(os.path.join(project_path, "kmeans_distribution")):
-            os.makedirs(os.path.join(project_path, "kmeans_distribution"))
-        plot_cluster_counts_distribution(cluster_counts, os.path.join(project_path, "kmeans_distribution/ivf_tensor_n_lists={self._n_lists}.png"))
-        # print(f"GPU K-means completed. Cluster sizes: min={cluster_counts.min()}, max={cluster_counts.max()}, mean={cluster_counts.mean():.1f}")
-    
     def set_query_arguments(self, n_probes: int) -> None:
         """
         Set query arguments.
@@ -247,66 +287,14 @@ class IVFTensor(BaseANN):
         cluster_sizes = cluster_counts.astype(np.int32)
         reordered_indices_flat = reordered_indices.astype(np.int32)
 
+        # 统计cluster_sizes中为空的数量
+        empty_cluster_cnt = sum(cluster_sizes == 0)
+        print("=======================================================================================================")
+        print(f"Empty cluster count: {empty_cluster_cnt}")
         n_total_vectors = int(cluster_sizes.sum())
         n_dim = X.shape[1]
+        print("=======================================================================================================")
 
-        # #region agent log
-        try:
-            with open("/home/diy/.cursor/debug-e66361.log", "a", encoding="utf-8") as _f:
-                _f.write(
-                    json.dumps(
-                        {
-                            "sessionId": "e66361",
-                            "hypothesisId": "H1-H2-H4",
-                            "location": "ivf_tensor/module.py:_batch_query_cuda",
-                            "message": "pre_pybind_search",
-                            "data": {
-                                "X_shape": list(X.shape),
-                                "reordered_data_shape": list(reordered_data.shape),
-                                "reordered_data_ndim": int(reordered_data.ndim),
-                                "cluster_vectors_flat_shape": list(cluster_vectors_flat.shape),
-                                "centroids_shape": list(centroids.shape),
-                                "reordered_indices_shape": list(reordered_indices_flat.shape),
-                                "cluster_sizes_shape": list(cluster_sizes.shape),
-                                "cluster_sizes_sum": int(cluster_sizes.sum()),
-                                "n_dim": int(n_dim),
-                                "n_clusters_from_get_data": int(n_clusters),
-                                "distance_mode": int(distance_mode),
-                                "n_probes": int(self._n_probes),
-                                "k": int(k),
-                                "use_interleaved": bool(self._use_interleaved),
-                                "lazy_upload_vectors": bool(self._lazy_upload_vectors),
-                                "fp16_coarse": bool(self._fp16_coarse),
-                                "fp16_fine": bool(self._fp16_fine),
-                                "use_blocks": bool(self._use_blocks),
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # #endregion
-
-        # BCS 平衡 block 模式：内部 rebalance + block lookup
-        # indices, distances = self._ivf_searcher.search_with_blocks(
-        #     X,
-        #     cluster_sizes,
-        #     cluster_vectors_flat,
-        #     centroids,
-        #     n_probes=self._n_probes,
-        #     k=k,
-        #     distance_mode=distance_mode,
-        #     reordered_indices=reordered_indices_flat,
-        #     std_var_ratio=self._std_var_ratio,
-        #     fp16_coarse=self._fp16_coarse,
-        #     fp16_fine=self._fp16_fine
-        # )
-        
-        # print("k:", k)
-        
         indices, distances = self._ivf_searcher.search(
             X,
             cluster_sizes,
@@ -325,6 +313,16 @@ class IVFTensor(BaseANN):
             lazy_upload_vectors=self._lazy_upload_vectors,
         )
 
+        # 输出每个query中重复的结果，最多5条
+        duplicate_results_cnt = 0
+        for i in range(len(indices)):
+            if len(indices[i]) != len(set(indices[i])):
+                print(f"Query {i} has duplicate results: {indices[i]}")
+                dups = [indices[i][j] for j in range(len(indices[i])) if indices[i].count(indices[i][j]) > 1]
+                print(f"Duplicate results: {dups}")
+                duplicate_results_cnt += 1
+                if duplicate_results_cnt >= 5:
+                    break
         results = indices.tolist()
         return results
     

@@ -212,6 +212,10 @@ error: query argument groups have been specified for {definition.module}.{defini
 algorithm instantiated from it does not implement the set_query_arguments \
 function"""
 
+    # 将 dataset_name 注入算法实例，供支持聚类缓存的算法使用
+    if hasattr(algo, '_dataset_name') and algo._dataset_name == 'unknown':
+        algo._dataset_name = dataset_name
+
     X_train, X_test, distance = load_and_transform_dataset(dataset_name)
 
     try:
