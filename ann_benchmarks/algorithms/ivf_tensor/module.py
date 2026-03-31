@@ -61,10 +61,13 @@ class IVFTensor(BaseANN):
         self._use_blocks = method_param.get('use_blocks', False)  # BCS 平衡 block 模式
         self._std_var_ratio = method_param.get('std_var_ratio', 0.2)
         self._fp16_coarse = method_param.get('fp16_coarse', False)
-        self._fp16_fine = method_param.get('fp16_fine', False)
-        self._use_interleaved = method_param.get('use_interleaved', True)  # 默认启用 interleaved 精筛
-        # 懒加载：精筛向量按 chunk 从 CPU 上传，不占常驻全量簇向量显存（须 use_interleaved=True）
-        self._lazy_upload_vectors = method_param.get('lazy_upload_vectors', True)
+        self._fine_strategy = method_param.get('fine_strategy', 'cpu_fp32')  # gpu_fp32 / gpu_fp16 / cpu_fp32
+        if(self._fine_strategy == 'cpu_fp32'):
+            self._use_interleaved = False
+            self._lazy_upload_vectors = False
+        else:
+            self._use_interleaved = True
+            self._lazy_upload_vectors = method_param.get('lazy_upload_vectors', True)
         self._n_probes = 1  # Default, will be set via set_query_arguments
 
         # 聚类缓存
@@ -95,6 +98,7 @@ class IVFTensor(BaseANN):
         Args:
             X: Training data array of shape (n_samples, n_features)
         """
+        self._dataset = np.ascontiguousarray(X, dtype=np.float32)
         self._n_vectors, self._vector_dim = X.shape
         # Determine number of clusters if not specified
         if self._n_lists is None:
@@ -107,7 +111,7 @@ class IVFTensor(BaseANN):
         
         print(f"Building IVF-Tensor index: {self._n_vectors} vectors, {self._vector_dim} dims, {self._n_lists} clusters")
         # Use CUDA implementation
-        self._fit_cuda(X)
+        self._fit_cuda(self._dataset)
 
     def _fit_cuda(self, X: np.ndarray) -> None:
         """
@@ -306,7 +310,7 @@ class IVFTensor(BaseANN):
             reordered_indices=reordered_indices_flat,
             query_batch_size=0,
             fp16_coarse=self._fp16_coarse,
-            fp16_fine=self._fp16_fine,
+            fine_strategy=self._fine_strategy,
             use_blocks=self._use_blocks,
             std_var_ratio=self._std_var_ratio,
             use_interleaved=self._use_interleaved,
@@ -338,8 +342,8 @@ class IVFTensor(BaseANN):
         s = f"IVFTensor(n_lists={self._n_lists}, n_probes={self._n_probes}, metric={self._metric}"
         if self._batch_size is not None:
             s += f", batch_size={self._batch_size}"
-        if self._fp16_coarse or self._fp16_fine:
-            s += f", fp16_coarse={self._fp16_coarse}, fp16_fine={self._fp16_fine}"
+        if self._fp16_coarse or self._fine_strategy != 'gpu_fp32':
+            s += f", fp16_coarse={self._fp16_coarse}, fine_strategy={self._fine_strategy}"
         if self._lazy_upload_vectors:
             s += ", lazy_upload_vectors=True"
         return s + ")"
