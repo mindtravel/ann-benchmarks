@@ -19,13 +19,11 @@ if ! command -v nsys &>/dev/null; then
     exit 1
 fi
 
-DATASET="${1:-SIFT1M-128-euclidean}"
+DATASET="${1:-SIFT10M-128-euclidean}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 REPORT_DIR="${ANN_ROOT}/report"
 REPORT="${REPORT_DIR}/nsys-report-ivf_tensor-${DATASET}-${TIMESTAMP}.nsys-rep"
 mkdir -p "$REPORT_DIR"
-
-
 
 # NSYS_PROFILE=1 使 benchmark 在主进程执行，这样 nsys 才能采到 CUDA/NVTX（子进程不会被 trace）
 # --trace=cuda 采集 CUDA API 和 kernel，nvtx 采集 NVTX 区间（Stage0~Stage4）
@@ -41,7 +39,7 @@ done
 
 if [ "$NSIGHT" -eq 0 ]; then
     echo "跳过 Nsight Systems 采集，仅运行测试 (无 nsys)..."
-    "$PYTHON_BIN" run.py --local --algorithm ivf_tensor --dataset "$DATASET" --force --runs 1 --batch
+    IVF_DEBUG_INDEX_RANGE=0 IVF_BATCH_SERIAL=0 "$PYTHON_BIN" run.py --local --algorithm ivf_tensor --dataset "$DATASET" --force --runs 1 --batch
     exit 0
 fi
 
@@ -54,7 +52,7 @@ if [ "$NSIGHT" -eq 1 ]; then
     --trace=cuda,nvtx \
     --force-overwrite=true \
     --stats=true \
-    env NSYS_PROFILE=1 python run.py --local --algorithm ivf_tensor --dataset "$DATASET" --force --runs 1 --batch
+    env NSYS_PROFILE=1 IVF_DEBUG_INDEX_RANGE=0 IVF_BATCH_SERIAL=0 python run.py --local --algorithm ivf_tensor --dataset "$DATASET" --force --runs 1 --batch
 fi
 
 
