@@ -68,7 +68,7 @@ def main():
     proxies = get_proxies()
     if not proxies:
         print("当前未设置代理。若 Yandex 不可达，可设置：")
-        print("  export HTTPS_PROXY=http://127.0.0.1:7890")
+        # print("  export HTTPS_PROXY=http://127.0.0.1:7890")
         print("  python scripts/download_deep1b.py")
         print()
 

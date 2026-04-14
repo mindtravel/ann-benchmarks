@@ -58,16 +58,16 @@ class IVFTensor(BaseANN):
         self._kmeans_iters = method_param.get('kmeans_iters', 20)
         self._use_minibatch = method_param.get('use_minibatch', False)
         self._batch_size = method_param.get('batch_size', None)  # 在 config.yml 的 arg_groups 中配置
-        self._use_blocks = method_param.get('use_blocks', False)  # BCS 平衡 block 模式
-        self._std_var_ratio = method_param.get('std_var_ratio', 0.2)
-        self._fp16_coarse = method_param.get('fp16_coarse', False)
+        print(f"[IVFTensor.__init__] method_param={method_param}")
+        print(f"[IVFTensor.__init__] batch_size={self._batch_size}")
+        self._fp16_coarse = method_param.get('fp16_coarse', True)
         self._fine_strategy = method_param.get('fine_strategy', 'cpu_fp32')  # gpu_fp32 / gpu_fp16 / cpu_fp32
         if(self._fine_strategy == 'cpu_fp32'):
             self._use_interleaved = False
-            self._lazy_upload_vectors = False
+            self._schedule_strategy = 'resident'  # cpu_fp32 不支持其他策略
         else:
             self._use_interleaved = True
-            self._lazy_upload_vectors = method_param.get('lazy_upload_vectors', True)
+            self._schedule_strategy = 'unique' # 'cache'  # 'unique', 'resident', cache
         self._n_probes = 1  # Default, will be set via set_query_arguments
 
         # 聚类缓存
@@ -184,7 +184,7 @@ class IVFTensor(BaseANN):
 
             # 取聚类决策并写入缓存（只存 centroids + indices，不存向量数据）
             (_, reordered_indices, centroids,
-             cluster_offsets, cluster_counts, _) = self._ivf_dataset.get_data()
+             cluster_offsets, cluster_counts, _, _) = self._ivf_dataset.get_data()
 
             if cache_enabled:
                 self._cluster_cache.save(
@@ -206,14 +206,23 @@ class IVFTensor(BaseANN):
 
         # 统一从 dataset 拿最终数据
         (self._reordered_data, self._reordered_indices, self._centroids,
-         cluster_offsets, cluster_counts, n_clusters) = self._ivf_dataset.get_data()
+         cluster_offsets, cluster_counts, n_clusters, self._vector_l2_norm) = self._ivf_dataset.get_data()
 
+        # 预处理和缓存数据，避免每次查询时重复拷贝/转换
         self._cluster_info = {
             'k': n_clusters,
             'offsets': cluster_offsets.astype(np.int32),
             'counts': cluster_counts.astype(np.int32),
             'reordered_indices': self._reordered_indices.astype(np.int32),
         }
+        # 预 flatten 向量数据（C++ 侧需要 1D）
+        self._cluster_vectors_flat = self._reordered_data.flatten()
+        # 预转换 centroids 为 float32（确保类型正确）
+        self._centroids = self._centroids.astype(np.float32)
+        # 预转换 vector_l2_norm 为 float32（如果存在）
+        if self._vector_l2_norm.size > 0:
+            self._vector_l2_norm = self._vector_l2_norm.astype(np.float32)
+        
         self._ivf_searcher = PyIVFTensor.IVFSearcher()
         print(f"Cluster sizes: min={cluster_counts.min()} max={cluster_counts.max()} "
               f"mean={cluster_counts.mean():.1f} empty={int((cluster_counts == 0).sum())}")
@@ -270,12 +279,9 @@ class IVFTensor(BaseANN):
         """
         if self._ivf_searcher is None or self._ivf_dataset is None:
             raise RuntimeError("Index not initialized. Call fit() first.")
-        if self._lazy_upload_vectors and not self._use_interleaved:
-            raise ValueError("lazy_upload_vectors requires use_interleaved=True")
-
-        # 获取聚类数据
-        (reordered_data, reordered_indices, centroids,
-         cluster_offsets, cluster_counts, n_clusters) = self._ivf_dataset.get_data()
+        # 检查调度策略是否与 use_interleaved 兼容
+        if self._schedule_strategy in ['unique', 'cache'] and not self._use_interleaved:
+            raise ValueError("schedule_strategy 'unique' or 'cache' requires use_interleaved=True")
 
         # 确定距离模式
         if(self._metric == "angular"):
@@ -285,11 +291,10 @@ class IVFTensor(BaseANN):
         else:
             raise ValueError(f"Invalid metric: {self._metric}")
 
-        # 准备 cluster_vectors：C++ 侧已按 use_interleaved 存储，interleaved 时为 1D，否则为 2D 需展平
-        # 聚类中心必须保持 [n_clusters, n_dim] 二维，PyIVFTensor.search / ivf_search 按行主序读 centroids
-        cluster_vectors_flat = reordered_data if reordered_data.ndim == 1 else reordered_data.flatten()
-        cluster_sizes = cluster_counts.astype(np.int32)
-        reordered_indices_flat = reordered_indices.astype(np.int32)
+        # 使用预缓存的数据（在 fit() 中预处理，避免每次查询重复拷贝/转换）
+        cluster_vectors_flat = self._cluster_vectors_flat
+        cluster_sizes = self._cluster_info['counts']
+        reordered_indices_flat = self._cluster_info['reordered_indices']
 
         # 统计cluster_sizes中为空的数量
         empty_cluster_cnt = sum(cluster_sizes == 0)
@@ -303,18 +308,18 @@ class IVFTensor(BaseANN):
             X,
             cluster_sizes,
             cluster_vectors_flat,
-            centroids,
+            self._centroids,
             n_probes=self._n_probes,
             k=k,
             distance_mode=distance_mode,
             reordered_indices=reordered_indices_flat,
-            query_batch_size=0,
+            query_batch_size=self._batch_size,
             fp16_coarse=self._fp16_coarse,
             fine_strategy=self._fine_strategy,
-            use_blocks=self._use_blocks,
-            std_var_ratio=self._std_var_ratio,
             use_interleaved=self._use_interleaved,
-            lazy_upload_vectors=self._lazy_upload_vectors,
+            schedule_strategy=self._schedule_strategy,
+            dataset_name=self._dataset_name,
+            vector_l2_norm=self._vector_l2_norm if hasattr(self, '_vector_l2_norm') and self._vector_l2_norm.size > 0 else None,
         )
 
         # 输出每个query中重复的结果，最多5条
@@ -344,7 +349,7 @@ class IVFTensor(BaseANN):
             s += f", batch_size={self._batch_size}"
         if self._fp16_coarse or self._fine_strategy != 'gpu_fp32':
             s += f", fp16_coarse={self._fp16_coarse}, fine_strategy={self._fine_strategy}"
-        if self._lazy_upload_vectors:
-            s += ", lazy_upload_vectors=True"
+        if self._schedule_strategy != 'resident':
+            s += f", schedule_strategy={self._schedule_strategy}"
         return s + ")"
 
