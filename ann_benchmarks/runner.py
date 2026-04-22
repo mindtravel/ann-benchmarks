@@ -14,7 +14,7 @@ import psutil
 from ann_benchmarks.algorithms.base.module import BaseANN
 
 from .definitions import Definition, instantiate_algorithm
-from .datasets import DATASETS, get_dataset
+from .datasets import DATASETS, get_dataset, get_dataset_fn
 from .distance import dataset_transform, metrics
 from .results import store_results
 
@@ -195,19 +195,32 @@ def load_and_transform_dataset(dataset_name: str) -> Tuple[
     return X_train, X_test, distance
 
 
-def build_index(algo: BaseANN, X_train: numpy.ndarray) -> Tuple:
+def build_index(algo: BaseANN, X_train: numpy.ndarray, dataset_name: str = None) -> Tuple:
     """Builds the ANN index for a given ANN algorithm on the training data.
 
     Args:
         algo (Any): The algorithm instance.
         X_train (Any): The training data.
+        dataset_name (str): Dataset name for fit_file path resolution.
 
     Returns:
         Tuple: The build time and index size.
     """
     t0 = time.time()
     memory_usage_before = algo.get_memory_usage()
-    algo.fit(X_train)
+
+    # Check if algorithm supports fit_file for zero-copy loading
+    if hasattr(algo, 'fit_file') and dataset_name:
+        hdf5_path = get_dataset_fn(dataset_name)
+        if os.path.exists(hdf5_path):
+            print(f"[runner] Algorithm supports fit_file, using zero-copy path: {hdf5_path}")
+            algo.fit_file(hdf5_path)
+        else:
+            print(f"[runner] HDF5 not found at {hdf5_path}, falling back to fit()")
+            algo.fit(X_train)
+    else:
+        algo.fit(X_train)
+
     build_time = time.time() - t0
     index_size = algo.get_memory_usage() - memory_usage_before
 
@@ -245,7 +258,7 @@ function"""
         if hasattr(algo, "supports_prepared_queries"):
             algo.supports_prepared_queries()
 
-        build_time, index_size = build_index(algo, X_train)
+        build_time, index_size = build_index(algo, X_train, dataset_name)
 
         query_argument_groups = definition.query_argument_groups or [[]]  # Ensure at least one iteration
 

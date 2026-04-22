@@ -23,7 +23,7 @@ import PyIVFTensor
 
 from cluster_cache import ClusterCache
 from .ivf_tensor_pinned import (
-    load_to_pinned,
+    numpy_to_pinned,
     ReusablePinnedBuffer,
 )
 
@@ -72,14 +72,47 @@ class IVFTensor(BaseANN):
 
     def fit(self, X: np.ndarray) -> None:
         """兼容接口：从 numpy 数组构建（会复制到 pinned，非 1x 主路径）。"""
-        from .ivf_tensor_pinned import numpy_to_pinned
-
         pinned = numpy_to_pinned(X)
         self.fit_pinned(pinned)
 
     def fit_file(self, filepath: str) -> None:
-        """推荐主路径：从文件直接加载到 pinned memory 并聚类。"""
-        pinned = load_to_pinned(filepath)
+        """推荐主路径：从文件直接加载到 pinned memory 并聚类。
+
+        使用 PyIVFTensor.PinnedDataset.from_bvecs/from_fvecs 快速加载（C++ 路径）。
+        支持按数据集名称自动确定读取数量。
+        """
+        import os
+        import re
+
+        # 根据数据集名称确定读取数量
+        max_n = 0  # 0 = 读取全部
+        name_lower = self._dataset_name.lower()
+        match = re.search(r'sift(?:-)?(\d+)m', name_lower)
+        if match:
+            max_n = int(match.group(1)) * 1_000_000
+        elif 'sift-128-euclidean' in name_lower or 'sift1m' in name_lower:
+            max_n = 1_000_000
+
+        # SIFT 数据集：使用 C++ 快速加载 bvecs
+        if 'sift' in name_lower:
+            bvecs_path = "/data/raw_dataset/sift1b/bigann_base.bvecs"
+            if os.path.exists(bvecs_path):
+                print(f"[IVFTensor] Fast loading from bvecs: {bvecs_path}, max_n={max_n}", flush=True)
+                pinned = PyIVFTensor.PinnedDataset.from_bvecs(bvecs_path, max_n)
+                self.fit_pinned(pinned)
+                return
+
+        # 根据扩展名选择加载方式
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == '.bvecs':
+            print(f"[IVFTensor] Fast loading from bvecs: {filepath}, max_n={max_n}", flush=True)
+            pinned = PyIVFTensor.PinnedDataset.from_bvecs(filepath, max_n)
+        elif ext == '.fvecs':
+            print(f"[IVFTensor] Fast loading from fvecs: {filepath}, max_n={max_n}", flush=True)
+            pinned = PyIVFTensor.PinnedDataset.from_fvecs(filepath, max_n)
+        else:
+            raise ValueError(f"Unsupported file format: {ext}. Use .bvecs or .fvecs")
+
         self.fit_pinned(pinned)
 
     def fit_pinned(self, pinned_data: PyIVFTensor.PinnedDataset) -> None:
@@ -131,6 +164,7 @@ class IVFTensor(BaseANN):
                 use_minibatch=self._use_minibatch,
                 distance_mode=distance_mode,
                 use_interleaved=self._use_interleaved,
+                take_ownership=True,  # 零拷贝：ClusterDataset 接管 PinnedDataset 数据
             )
             print(f"[IVFTensor] Clustering done in {time.time() - t0:.1f}s", flush=True)
 

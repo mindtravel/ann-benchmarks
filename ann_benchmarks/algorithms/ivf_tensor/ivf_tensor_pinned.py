@@ -92,27 +92,73 @@ def load_fvecs_to_pinned(filepath: str) -> PyIVFTensor.PinnedDataset:
     return pinned
 
 
-def load_bvecs_to_pinned(filepath: str) -> PyIVFTensor.PinnedDataset:
-    """从 .bvecs 文件加载到 pinned memory。"""
+def load_bvecs_to_pinned(filepath: str, max_n: int = None) -> PyIVFTensor.PinnedDataset:
+    """从 .bvecs 文件加载到 pinned memory。
+
+    优化点：
+    1. 不再逐向量 seek / fromfile
+    2. 不再逐向量 astype 产生临时 float32 数组
+    3. 使用 memmap 按块读取，避免一次性把整个文件搬进普通内存
+    4. 仅保留一次必要的 uint8 -> float32 转换，直接写入 pinned memory
+
+    Args:
+        filepath: bvecs 文件路径
+        max_n: 最大读取向量数（None = 读取全部）
+    """
+    import os
+    import numpy as np
+
     with open(filepath, "rb") as f:
         dim = np.fromfile(f, dtype=np.int32, count=1)[0]
-        f.seek(0, 2)
+        if dim <= 0:
+            raise ValueError(f"Invalid bvecs dim: {dim}")
+
+        f.seek(0, os.SEEK_END)
         file_size = f.tell()
-        f.seek(0)
 
-        vec_size = 4 + dim
-        n = file_size // vec_size
+    vec_size = 4 + dim
+    if file_size % vec_size != 0:
+        raise ValueError(
+            f"Invalid bvecs file size: {file_size} is not divisible by record size {vec_size}"
+        )
 
-        pinned = PyIVFTensor.PinnedDataset(n, dim)
-        pinned_arr = pinned.numpy()
-        block_size = min(100000, n)
+    total_n = file_size // vec_size
+    n = min(total_n, max_n) if max_n is not None else total_n
 
-        for start in range(0, n, block_size):
-            end = min(start + block_size, n)
-            for i in range(start, end):
-                f.seek(i * vec_size)
-                f.seek(4, 1)  # skip dim
-                pinned_arr[i] = np.fromfile(f, dtype=np.uint8, count=dim).astype(np.float32)
+    print(
+        f"[load_bvecs_to_pinned] Loading {n} vectors (dim={dim}) from {filepath}",
+        flush=True,
+    )
+
+    pinned = PyIVFTensor.PinnedDataset(n, dim)
+    pinned_arr = pinned.numpy()
+
+    # 每条记录: 4-byte dim + dim-byte uint8 vector
+    record_dtype = np.dtype([
+        ("dim", np.int32),
+        ("vec", np.uint8, dim),
+    ])
+
+    # 零拷贝映射文件，不把整文件先读进普通内存
+    records = np.memmap(filepath, mode="r", dtype=record_dtype, shape=(total_n,))
+
+    # 可选一致性检查：只检查首条，避免全文件扫描
+    if int(records[0]["dim"]) != dim:
+        raise ValueError(
+            f"Inconsistent bvecs header: first dim={int(records[0]['dim'])}, expected {dim}"
+        )
+
+    block_size = min(100000, n)
+    for start in range(0, n, block_size):
+        end = min(start + block_size, n)
+
+        # 这里只做一次必要的 uint8 -> float32 转换，直接写入 pinned_arr
+        # 不再显式 astype(copy=True)
+        np.copyto(
+            pinned_arr[start:end],
+            records[start:end]["vec"],
+            casting="unsafe",
+        )
 
     return pinned
 
