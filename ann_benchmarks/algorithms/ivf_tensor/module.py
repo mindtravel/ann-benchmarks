@@ -11,18 +11,41 @@ import sys
 import time
 import numpy as np
 from typing import Optional, List
+import psutil
+import tracemalloc
 
 from ..base.module import BaseANN
 
+
+def get_memory_usage_mb():
+    """获取当前进程的内存使用量（MB）"""
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024 / 1024
+
+
+def log_memory(label: str):
+    """打印当前内存使用情况"""
+    mem_mb = get_memory_usage_mb()
+    print(f"[MEMORY] {label}: {mem_mb:.1f} MB", flush=True)
+
 # 尝试加载 IVFTensor Python 扩展模块
+# 拉去仓库后记得改这里
 ivftensor_path = "/home/diy/lzx/ivftensor"
 project_path = "/home/diy/lzx/ann-benchmarks"
+
+# 预加载依赖库，确保 PyIVFTensor 能找到它们
+# import ctypes
+# conda_lib_path = "/home/diy/miniconda3/envs/ivftensor/lib"
+# if os.path.exists(conda_lib_path):
+#     # 使用 RTLD_GLOBAL 确保符号对其他库可见
+#     ctypes.CDLL(os.path.join(conda_lib_path, "libcuvs.so"), mode=ctypes.RTLD_GLOBAL)
 
 module_paths = os.path.join(ivftensor_path, "python/build")
 sys.path.insert(0, module_paths)
 sys.path.insert(0, os.path.join(ivftensor_path, "python"))
 import PyIVFTensor
 from cluster_cache import ClusterCache
+from .ivf_tensor_pinned import numpy_to_pinned
 
 # 默认缓存目录，可通过环境变量 IVF_CLUSTER_CACHE_DIR 覆盖
 _CLUSTER_CACHE_DIR = os.environ.get(
@@ -52,14 +75,13 @@ class IVFTensor(BaseANN):
                 - dataset_name: 数据集名称，用于聚类缓存 key（默认 "unknown"）
                 - cache_cluster: 是否启用聚类缓存（默认 True）
         """
-        # self._metric = metric
-        self._metric = "euclidean"
+        self._metric = metric
         self._n_lists = method_param.get('n_lists', None)  # Will be set in fit()
         self._kmeans_iters = method_param.get('kmeans_iters', 20)
         self._use_minibatch = method_param.get('use_minibatch', False)
         self._batch_size = method_param.get('batch_size', None)  # 在 config.yml 的 arg_groups 中配置
-        print(f"[IVFTensor.__init__] method_param={method_param}")
-        print(f"[IVFTensor.__init__] batch_size={self._batch_size}")
+        print(f"[IVFTensor.__init__] method_param={method_param}", flush=True)
+        print(f"[IVFTensor.__init__] batch_size={self._batch_size}", flush=True)
         self._fp16_coarse = method_param.get('fp16_coarse', True)
         self._fine_strategy = method_param.get('fine_strategy', 'cpu_fp32')  # gpu_fp32 / gpu_fp16 / cpu_fp32
         if(self._fine_strategy == 'cpu_fp32'):
@@ -98,7 +120,19 @@ class IVFTensor(BaseANN):
         Args:
             X: Training data array of shape (n_samples, n_features)
         """
-        self._dataset = np.ascontiguousarray(X, dtype=np.float32)
+        log_memory("fit start")
+        data_size_mb = X.nbytes / 1024 / 1024
+        print(f"[IVFTensor.fit] Input data size: {data_size_mb:.1f} MB, shape: {X.shape}", flush=True)
+        
+        # 验证数据布局，不连续直接报错
+        if not X.flags['C_CONTIGUOUS']:
+            raise RuntimeError("Error! [索引构建] 输入数据不是C-contiguous布局")
+        if X.dtype != np.float32:
+            raise RuntimeError(f"Error! [索引构建] 输入数据类型错误: {X.dtype}, 期望float32")
+        
+        self._dataset = X  # 直接引用，零复制
+        log_memory("after saving dataset reference")
+        print(f"[IVFTensor.fit] 数据布局检查通过，C-contiguous float32")
         self._n_vectors, self._vector_dim = X.shape
         # Determine number of clusters if not specified
         if self._n_lists is None:
@@ -109,7 +143,7 @@ class IVFTensor(BaseANN):
                 self._n_lists = max(1, self._n_vectors // 10000)
         
         
-        print(f"Building IVF-Tensor index: {self._n_vectors} vectors, {self._vector_dim} dims, {self._n_lists} clusters")
+        print(f"Building IVF-Tensor index: {self._n_vectors} vectors, {self._vector_dim} dims, {self._n_lists} clusters", flush=True)
         # Use CUDA implementation
         self._fit_cuda(self._dataset)
 
@@ -119,6 +153,8 @@ class IVFTensor(BaseANN):
         命中缓存时加载聚类决策（centroids + reordered_indices），
         用原始数据 X 重新完成重排和 interleaved 构建，跳过 K-means。
         """
+        log_memory("_fit_cuda start")
+        
         if self._metric == "angular":
             distance_mode = PyIVFTensor.DISTANCE_COSINE
         elif self._metric == "euclidean":
@@ -137,31 +173,40 @@ class IVFTensor(BaseANN):
         # dataset_name 未设置时禁用缓存，避免不同数据集互相污染
         cache_enabled = self._cache_cluster and self._dataset_name != 'unknown'
         if self._cache_cluster and self._dataset_name == 'unknown':
-            print("[ClusterCache] 警告: dataset_name 未设置，跳过缓存（传入 dataset_name 参数以启用）")
+            print("[ClusterCache] 警告: dataset_name 未设置，跳过缓存（传入 dataset_name 参数以启用）", flush=True)
 
         # ---- 尝试从缓存加载聚类决策 ----
         cached = self._cluster_cache.load(self._dataset_name, self._n_lists, algo_tag) \
             if cache_enabled else None
 
         self._ivf_dataset = PyIVFTensor.ClusterDataset()
+        log_memory("after creating ClusterDataset")
 
         if cached is not None:
             (centroids, reordered_indices, cluster_counts, cluster_offsets), _ = cached
-            # 用缓存的聚类决策 + 原始数据 X 重建 ClusterDataset
-            # init_from_existing 内部按 reordered_indices 重排，并按需构建 interleaved
-            self._ivf_dataset.init_from_existing(
-                reordered_data    = X,
+            log_memory("after loading cache")
+            # 缓存路径：创建 PinnedDataset，复制数据，然后原地重排
+            # 这样最终只有一份数据内存（PinnedDataset），避免重复复制
+            log_memory("before creating pinned_data for cache path")
+            pinned_data = numpy_to_pinned(X)
+            log_memory("after creating pinned_data (data copied to pinned)")
+            self._ivf_dataset.init_from_existing_inplace(
+                pinned_data,
                 reordered_indices = reordered_indices.astype(np.int32),
                 centroids         = centroids,
                 cluster_offsets   = cluster_offsets.astype(np.int64),
                 cluster_counts    = cluster_counts.astype(np.int32),
                 use_interleaved   = self._use_interleaved,
             )
+            log_memory("after init_from_existing_inplace")
         else:
-            # ---- 执行聚类 ----
+            # ---- 执行聚类（零拷贝路径：X → PinnedDataset → kmeans） ----
             t0 = time.time()
+            log_memory("before numpy_to_pinned")
+            pinned_data = numpy_to_pinned(X)
+            log_memory("after numpy_to_pinned (pinned_data created)")
             if use_hierarchical:
-                print(f"Running Balanced Hierarchical Clustering ({self._kmeans_iters} iterations)...")
+                print(f"Running Balanced Hierarchical Clustering ({self._kmeans_iters} iterations)...", flush=True)
                 self._ivf_dataset.init_with_hierarchical(
                     X,
                     n_clusters=self._n_lists,
@@ -170,17 +215,18 @@ class IVFTensor(BaseANN):
                     distance_mode=distance_mode,
                 )
             else:
-                print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...")
-                self._ivf_dataset.init_with_kmeans(
-                    X,
+                print(f"Running GPU K-means clustering ({self._kmeans_iters} iterations)...", flush=True)
+                self._ivf_dataset.init_with_kmeans_pinned(
+                    pinned_data,
                     n_clusters=self._n_lists,
                     kmeans_iters=self._kmeans_iters,
                     use_minibatch=self._use_minibatch,
                     distance_mode=distance_mode,
                     use_interleaved=self._use_interleaved,
                 )
+            log_memory("after init_with_kmeans_pinned")
             elapsed = time.time() - t0
-            print(f"Clustering done in {elapsed:.1f}s")
+            print(f"Clustering done in {elapsed:.1f}s", flush=True)
 
             # 取聚类决策并写入缓存（只存 centroids + indices，不存向量数据）
             (_, reordered_indices, centroids,
@@ -255,8 +301,13 @@ class IVFTensor(BaseANN):
         if self._reordered_data is None:
             raise RuntimeError("Index not fitted. Call fit() first.")
         
-        # Use batch query with single vector
-        self.batch_query(np.array([v]), k)
+        # Use batch query with single vector - 验证布局
+        v = np.asarray(v)
+        if not v.flags['C_CONTIGUOUS']:
+            raise RuntimeError("Error! [单条查询] 查询向量不是C-contiguous布局")
+        if v.dtype != np.float32:
+            raise RuntimeError(f"Error! [单条查询] 查询向量数据类型错误: {v.dtype}, 期望float32")
+        self.batch_query(v.reshape(1, -1), k)
         results = self.get_batch_results()
         return results[0] if results else []
     
@@ -271,6 +322,13 @@ class IVFTensor(BaseANN):
         """
         if self._reordered_data is None:
             raise RuntimeError("Index not fitted. Call fit() first.")
+        
+        # 验证查询数据布局，不连续直接报错
+        if not X.flags['C_CONTIGUOUS']:
+            raise RuntimeError("Error! [批量查询] 查询数据不是C-contiguous布局")
+        if X.dtype != np.float32:
+            raise RuntimeError(f"Error! [批量查询] 查询数据类型错误: {X.dtype}, 期望float32")
+        
         self._batch_results = self._batch_query_cuda(X, k)
     
     def _batch_query_cuda(self, X: np.ndarray, k: int) -> List[List[int]]:
@@ -298,14 +356,17 @@ class IVFTensor(BaseANN):
 
         # 统计cluster_sizes中为空的数量
         empty_cluster_cnt = sum(cluster_sizes == 0)
-        print("=======================================================================================================")
-        print(f"Empty cluster count: {empty_cluster_cnt}")
+        print("=======================================================================================================", flush=True)
+        print(f"Empty cluster count: {empty_cluster_cnt}", flush=True)
         n_total_vectors = int(cluster_sizes.sum())
         n_dim = X.shape[1]
-        print("=======================================================================================================")
+        print("=======================================================================================================", flush=True)
 
-        indices, distances = self._ivf_searcher.search(
-            X,
+        # 零拷贝路径：查询数据放入 pinned memory，避免 search 内部重复拷贝
+        pinned_queries = numpy_to_pinned(X)
+
+        indices, distances = self._ivf_searcher.search_pinned_queries(
+            pinned_queries,
             cluster_sizes,
             cluster_vectors_flat,
             self._centroids,
