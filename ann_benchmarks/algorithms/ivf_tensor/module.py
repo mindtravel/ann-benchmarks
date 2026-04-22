@@ -176,6 +176,7 @@ class IVFTensor(BaseANN):
             fp16_coarse=self._fp16_coarse,
             fine_strategy=self._fine_strategy,
             schedule_strategy=self._schedule_strategy,
+            dataset_name=self._dataset_name,
         )
 
         self._batch_results = indices.tolist()
