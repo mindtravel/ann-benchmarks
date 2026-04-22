@@ -19,7 +19,8 @@ if ! command -v nsys &>/dev/null; then
     exit 1
 fi
 
-DATASET="${1:-SIFT10M-128-euclidean}"
+DATASET="${1:-SIFT100M-128-euclidean}"
+# DATASET="${1:-TEXT10M-200-angular}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 REPORT_DIR="${ANN_ROOT}/report"
 REPORT="${REPORT_DIR}/nsys-report-ivf_tensor-${DATASET}-${TIMESTAMP}.nsys-rep"

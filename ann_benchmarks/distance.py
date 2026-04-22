@@ -101,25 +101,32 @@ def convert_sparse_to_list(data: np.ndarray, lengths: List[int]) -> List[np.ndar
     ]
 
 
-def dataset_transform(dataset: h5py.Dataset) -> Tuple[Union[np.ndarray, List[np.ndarray]], Union[np.ndarray, List[np.ndarray]]]:
+def dataset_transform(train_data, test_data, distance: str = None):
     """
-    Transforms the dataset from the HDF5 format to conventional numpy format.
+    Transforms the dataset from the HDF5 format or numpy array to conventional numpy format.
 
     If the dataset is dense, it's returned as a numpy array.
     If it's sparse, it's transformed into a list of numpy arrays, each representing a data sample.
 
     Args:
-        dataset (h5py.Dataset): The input dataset in HDF5 format.
+        train_data: Training data (h5py.Dataset or np.ndarray)
+        test_data: Testing data (h5py.Dataset or np.ndarray)
+        distance: Distance metric string (optional)
 
     Returns:
         Tuple[Union[np.ndarray, List[np.ndarray]], Union[np.ndarray, List[np.ndarray]]]: Tuple of training and testing data in conventional format.
     """
-    if dataset.attrs.get("type", "dense") != "sparse":
-        return np.array(dataset["train"]), np.array(dataset["test"])
+    # 如果已经是 numpy 数组，直接返回
+    if isinstance(train_data, np.ndarray):
+        return train_data, test_data
+    
+    # 否则从 HDF5 数据集中读取
+    if hasattr(train_data, 'attrs') and train_data.attrs.get("type", "dense") != "sparse":
+        return np.array(train_data["train"]), np.array(train_data["test"])
 
     # we store the dataset as a list of integers, accompanied by a list of lengths in hdf5
     # so we transform it back to the format expected by the algorithms here (array of array of ints)
     return (
-        convert_sparse_to_list(dataset["train"], dataset["size_train"]),
-        convert_sparse_to_list(dataset["test"], dataset["size_test"])
+        convert_sparse_to_list(train_data["train"], train_data["size_train"]),
+        convert_sparse_to_list(test_data["test"], test_data["size_test"])
     )

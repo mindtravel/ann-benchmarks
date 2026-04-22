@@ -57,15 +57,21 @@ def get_dataset(dataset_name: str) -> Tuple[h5py.File, int]:
             the dimension of the dataset.
     """
     hdf5_filename = get_dataset_fn(dataset_name)
-    try:
-        dataset_url = f"https://ann-benchmarks.com/{dataset_name}.hdf5"
-        download(dataset_url, hdf5_filename)
-    except:
-        traceback.print_exc()
-        print(f"Cannot download {dataset_url}")
-        if dataset_name in DATASETS:
-            print("Creating dataset locally")
-            DATASETS[dataset_name](hdf5_filename)
+    
+    # 如果本地文件已存在，直接使用
+    if os.path.exists(hdf5_filename):
+        print(f"Using existing dataset: {hdf5_filename}")
+    else:
+        # 本地文件不存在，尝试下载或生成
+        try:
+            dataset_url = f"https://ann-benchmarks.com/{dataset_name}.hdf5"
+            download(dataset_url, hdf5_filename)
+        except:
+            traceback.print_exc()
+            print(f"Cannot download {dataset_url}")
+            if dataset_name in DATASETS:
+                print("Creating dataset locally")
+                DATASETS[dataset_name](hdf5_filename)
 
     hdf5_file = h5py.File(hdf5_filename, "r")
 
@@ -472,7 +478,7 @@ def SIFT1B(out_fn: str,
     """
     import os
     
-    raw_data_dir = os.path.join("raw_data", "sift1B")
+    raw_data_dir = os.path.join("raw_data", "sift1b")
     base_file = os.path.join(raw_data_dir, "bigann_base.bvecs")
     query_file = os.path.join(raw_data_dir, "bigann_query.bvecs")
     
@@ -829,7 +835,105 @@ def TEXT1M_200_angular(out_fn: str = "TEXT1M-200-angular.hdf5",
     print(f"<= HDF5 已生成：{out_fn}")
     os.remove(raw_bin)
     print(f"<= 已删除临时文件 {raw_bin}")
+
+
+def TEXT1B(out_fn: str,
+           n_total: int = 1_000_000,   # 默认裁剪 1M 条
+           test_size: int = 10_000,
+           count: int = 100,
+           distance: str = "euclidean") -> None:
+    """
+    处理 TEXT1B 数据集（T2I）
     
+    从 /data/raw_dataset/text1b/ 目录读取：
+    - base.1B.fbin: 基础向量集（1B 条，200维）
+    - query.public.100K.fbin: 查询向量集（100K 条）
+    - groundtruth.public.100K.ibin: ground truth 文件
+    
+    参数：
+        out_fn: 输出 HDF5 文件路径
+        n_total: 从基础集中读取的向量数量（默认 1M）
+        test_size: 测试集大小
+        count: 每个查询的最近邻数量
+        distance: 距离度量（"euclidean" 或 "angular"）
+    """
+    import os
+    import struct
+    
+    # 支持通过环境变量指定数据集根目录
+    data_root = os.environ.get("TEXT_DATA_ROOT", "/data/raw_dataset/text1b")
+    base_file = os.path.join(data_root, "base.1B.fbin")
+    query_file = os.path.join(data_root, "query.public.100K.fbin")
+    gt_file = os.path.join(data_root, "groundtruth.public.100K.ibin")
+    
+    # 检查文件是否存在
+    if not os.path.exists(base_file):
+        raise FileNotFoundError(f"找不到基础向量文件: {base_file}")
+    if not os.path.exists(query_file):
+        raise FileNotFoundError(f"找不到查询向量文件: {query_file}")
+    if not os.path.exists(gt_file):
+        raise FileNotFoundError(f"找不到 ground truth 文件: {gt_file}")
+    
+    # 读取基础向量（训练集）
+    print(f"读取训练集（前 {n_total} 个向量）...")
+    with open(base_file, "rb") as f:
+        num, dim = struct.unpack("II", f.read(8))
+        print(f"  文件包含 {num} 个向量，维度 {dim}，读取前 {n_total} 个")
+        n = min(n_total, num)
+        train = numpy.frombuffer(f.read(n * dim * 4), dtype=numpy.float32).reshape(n, dim)
+    
+    # 读取查询向量（测试集）- 从 100K 条中截取 test_size 条（默认 10K）
+    print(f"读取查询集（前 {test_size} 个向量）...")
+    with open(query_file, "rb") as f:
+        num, dim = struct.unpack("II", f.read(8))
+        print(f"  文件包含 {num} 个向量，维度 {dim}，截取前 {test_size} 个")
+        n = min(test_size, num)
+        test = numpy.frombuffer(f.read(n * dim * 4), dtype=numpy.float32).reshape(n, dim)
+    
+    # 读取 ground truth - 同样截取前 test_size 条
+    print(f"读取 ground truth（前 {test_size} 个查询）...")
+    with open(gt_file, "rb") as f:
+        num, k = struct.unpack("II", f.read(8))
+        print(f"  文件包含 {num} 个查询，每个查询 {k} 个近邻，截取前 {test_size} 个")
+        gt = numpy.frombuffer(f.read(num * k * 4), dtype=numpy.int32).reshape(num, k)
+        # 只取前 test_size 个查询的 ground truth
+        gt = gt[:test_size, :count]
+    
+    # 计算距离（用于验证）
+    print(f"写入 HDF5 文件: {out_fn}")
+    
+    # 直接使用 ground truth 中的距离信息（如果有的话）
+    # 这里我们计算训练集和测试集之间的距离
+    from ann_benchmarks.algorithms.bruteforce.module import BruteForceBLAS
+    
+    bf = BruteForceBLAS(distance, precision=train.dtype)
+    bf.fit(train)
+    
+    neighbors = numpy.zeros((len(test), count), dtype=int)
+    distances = numpy.zeros((len(test), count), dtype=float)
+    
+    for i, x in enumerate(test):
+        if i % 1000 == 0:
+            print(f"计算距离 {i}/{len(test)}...")
+        res = list(bf.query_with_distances(x, count))
+        res.sort(key=lambda t: t[-1])
+        neighbors[i] = [idx for idx, _ in res]
+        distances[i] = [dist for _, dist in res]
+    
+    # 写入 HDF5
+    with h5py.File(out_fn, "w") as f:
+        f.attrs["type"] = "dense"
+        f.attrs["distance"] = distance
+        f.attrs["dimension"] = len(train[0])
+        f.attrs["point_type"] = "float"
+        print(f"train size: {train.shape[0]} * {train.shape[1]}")
+        print(f"test size:  {test.shape[0]} * {test.shape[1]}")
+        f.create_dataset("train", data=train)
+        f.create_dataset("test", data=test)
+        f.create_dataset("neighbors", data=neighbors)
+        f.create_dataset("distances", data=distances)
+    
+    print(f"✓ TEXT1B 数据集处理完成: {len(train)} 训练向量, {len(test)} 测试向量")
 
 
 DATASETS: Dict[str, Callable[[str], None]] = {
@@ -863,15 +967,19 @@ DATASETS: Dict[str, Callable[[str], None]] = {
     "movielens20m-jaccard": movielens20m,
     "coco-i2i-512-angular": lambda out_fn: coco(out_fn, "i2i"),
     "coco-t2i-512-angular": lambda out_fn: coco(out_fn, "t2i"),    
-    #"TEXT1M-200-angular": lambda out_fn: TEXT(out_fn, n_total=1000_000, test_size=10_000, count=100, distance="angular"),
-    "TEXT500k-200-angular": lambda out_fn: TEXT(out_fn, n_total=500_000, test_size=10_000, count=100, distance="angular"),
-    "TEXT1M-200-angular": lambda out_fn: TEXT1M_200_angular(out_fn, test_size=10_000, count=100, distance="angular"),
+
     # SIFT1B 数据集（支持不同规模）
     "SIFT10K-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=10_000, test_size=100, count=100, distance="euclidean"),
     "SIFT1M-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=1_000_000, test_size=10_000, count=100, distance="euclidean"),
     "SIFT10M-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=10_000_000, test_size=10_000, count=100, distance="euclidean"),
     "SIFT100M-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=100_000_000, test_size=10_000, count=100, distance="euclidean"),
     "SIFT1B-128-euclidean": lambda out_fn: SIFT1B(out_fn, n_total=10_000_000_000, test_size=10_000, count=100, distance="euclidean"),
+    # TEXT1B 数据集（支持不同规模，200维）
+    "TEXT500k-200-angular": lambda out_fn: TEXT(out_fn, n_total=500_000, test_size=10_000, count=100, distance="angular"),
+    "TEXT1M-200-angular": lambda out_fn: TEXT1M_200_angular(out_fn, test_size=10_000, count=100, distance="angular"),
+    "TEXT10M-200-angular": lambda out_fn: TEXT1B(out_fn, n_total=10_000_000, test_size=10_000, count=100, distance="angular"),
+    "TEXT100M-200-angular": lambda out_fn: TEXT1B(out_fn, n_total=100_000_000, test_size=10_000, count=100, distance="angular"),
+    "TEXT1B-200-angular": lambda out_fn: TEXT1B(out_fn, n_total=1_000_000_000, test_size=10_000, count=100, distance="angular"),
 }
 
 DATASETS.update({

@@ -6,7 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ANN_ROOT"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.10 2>/dev/null || command -v python3)}"
-DATASET="${1:-SIFT10M-128-euclidean}"
+DATASET="${1:-SIFT100M-128-euclidean}"
+# DATASET="${1:-TEXT10M-200-angular}"
+
 echo "ours ivf_tensor测试开始..."
 export IVF_DEBUG_INDEX_RANGE=0
 "$PYTHON_BIN" run.py --local --algorithm ivf_tensor --dataset "$DATASET" --force --runs 1 --batch

@@ -1,0 +1,62 @@
+2 channel Terms of Service accepted
+Channels:
+ - conda-forge
+ - defaults
+Platform: linux-64
+Collecting package metadata (repodata.json): - \ | / - \ | / - \ | / - \ | / - \ done
+Solving environment: / - done
+
+
+==> WARNING: A newer version of conda exists. <==
+    current version: 25.11.1
+    latest version: 26.3.2
+
+Please update conda by running
+
+    $ conda update -n base -c defaults conda
+
+
+
+## Package Plan ##
+
+  environment location: /home/diy/miniconda3
+
+  added / updated specs:
+    - cmake
+
+
+The following packages will be downloaded:
+
+    package                    |            build
+    ---------------------------|-----------------
+    cmake-3.31.1               |       hf9cb763_0        19.5 MB  conda-forge
+    conda-26.1.1               |  py313h78bf25f_0         1.2 MB  conda-forge
+    ------------------------------------------------------------
+                                           Total:        20.7 MB
+
+The following NEW packages will be INSTALLED:
+
+  cmake              conda-forge/linux-64::cmake-3.31.1-hf9cb763_0 
+  libuv              conda-forge/linux-64::libuv-1.51.0-hb03c661_1 
+  rhash              conda-forge/linux-64::rhash-1.4.6-hb9d3cd8_1 
+
+The following packages will be UPDATED:
+
+  ca-certificates    pkgs/main/linux-64::ca-certificates-2~ --> conda-forge/noarch::ca-certificates-2026.2.25-hbd8a1cb_0 
+  certifi            pkgs/main/linux-64::certifi-2025.11.1~ --> conda-forge/noarch::certifi-2026.2.25-pyhd8ed1ab_0 
+  conda              pkgs/main::conda-25.11.1-py313h06a430~ --> conda-forge::conda-26.1.1-py313h78bf25f_0 
+  openssl              pkgs/main::openssl-3.0.18-hd6dcaed_0 --> conda-forge::openssl-3.6.2-h35e630c_0 
+
+
+
+Downloading and Extracting Packages: ...working...cmake-3.31.1         | 19.5 MB   |            |   0% 
+conda-26.1.1         | 1.2 MB    |            |   0% [A
+conda-26.1.1         | 1.2 MB    | 1          |   1% [Acmake-3.31.1         | 19.5 MB   |            |   0% 
+conda-26.1.1         | 1.2 MB    | ##         |  21% [Acmake-3.31.1         | 19.5 MB   | 1          |   1% 
+conda-26.1.1         | 1.2 MB    | ########## | 100% [A
+conda-26.1.1         | 1.2 MB    | ########## | 100% [Acmake-3.31.1         | 19.5 MB   | 7          |   7% cmake-3.31.1         | 19.5 MB   | ###8       |  38% cmake-3.31.1         | 19.5 MB   | #####6     |  56% 
+conda-26.1.1         | 1.2 MB    | ########## | 100% [Acmake-3.31.1         | 19.5 MB   | #######1   |  72% cmake-3.31.1         | 19.5 MB   | #########4 |  95% cmake-3.31.1         | 19.5 MB   | ########## | 100% cmake-3.31.1         | 19.5 MB   | ########## | 100%                                                      
+                                                     [A done
+Preparing transaction: | / done
+Verifying transaction: \ | / - done
+Executing transaction: | / - \ | / - \ | / - \ | / - \ | / - \ | / - done

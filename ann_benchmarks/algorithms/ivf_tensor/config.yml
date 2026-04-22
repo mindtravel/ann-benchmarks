@@ -93,43 +93,154 @@ float:
       # 4_fp16_100000:
       #   arg_groups: [{kmeans_iters: 5, n_lists: 100000, batch_size: 10000, fp16_coarse: true, fp16_fine: false}]
       #   args: {}
-      #   query_args: [[100]]
-      #   # query_args: [[10, 20, 50, 100, 200]]
+      #   query_args: [[1]]
+        # query_args: [[10, 20, 50, 100, 200]]
 
       # 4_fp16_10000:
-      #   arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 10000, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
       #   args: {}
-      #   query_args: [[100]]
+      #   query_args: [[1, 100]]
 
       # 4_fp16_5000:
-      #   arg_groups: [{kmeans_iters: 20, n_lists: 5000, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 5000, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
       #   args: {}
-      #   query_args: [[50]]
+      #   query_args: [[1, 50]]
 
       # 4_fp16_2000:
-      #   arg_groups: [{kmeans_iters: 20, n_lists: 2000, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 2000, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
       #   args: {}
-      #   query_args: [[20]]
+      #   query_args: [[1, 20]]
 
-      4_fp16_1000:
-        arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
-        args: {}
-        query_args: [[10]]
+      # 4_fp16_1000:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[1, 10]]
 
       # 4_fp16_500:
-      #   arg_groups: [{kmeans_iters: 20, n_lists: 500, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 500, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
       #   args: {}
-      #   query_args: [[5]]
-
+      #   query_args: [[1, 5]]
+      
       # 4_fp16_200:
-      #   arg_groups: [{kmeans_iters: 20, n_lists: 200, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 200, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
       #   args: {}
-      #   query_args: [[2]]
+      #   query_args: [[1, 2]]
 
       # 4_fp16_100:
-      #   arg_groups: [{kmeans_iters: 20, n_lists: 100, batch_size: 1000, fp16_coarse: true, fp16_fine: false}]
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 100, batch_size: 1000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
       #   args: {}
-      #   query_args: [[1]]
+      #   query_args: [[1, 1]]
+
+      # rummy_256_small_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 256, batch_size: 8, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[4, 4, 8, 16]]
+
+      # rummy_256_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 256, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[4, 4, 8, 16]]
+
+      # rummy_512_small_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 512, batch_size: 8, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[8, 8, 16, 32]]
+
+      # rummy_512_large_batch_fp32coarse:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 512, batch_size: 256, fp16_coarse: false, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[8, 8, 16, 32]]
+
+      # rummy_512_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 512, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[8, 8, 16, 32]]
+
+      # rummy_512_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 512, batch_size: 10000, fp16_coarse: false, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[8, 8, 16, 32]]
+
+      # rummy_512_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 512, batch_size: 6000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[8, 8, 16, 32]]
+
+      rummy_1024_large_batch:
+        arg_groups: [{kmeans_iters: 20, n_lists: 1024, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+        args: {}
+        query_args: [[8, 8, 16, 32]]
+        # query_args: [[8]]
+
+      # rummy_2048_small_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 2048, batch_size: 8, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[32, 32, 64, 128]]
+
+      # rummy_2048_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 2048, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[32, 32, 64, 128]]
+
+      # rummy_4096_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 4096, batch_size: 10000, fp16_coarse: false, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[64, 64, 128, 256]]
+      #   # query_args: [[2000]]
+
+      # rummy_8192_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 8192, batch_size: 10000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[128, 128, 256, 512]]
+
+      # rummy_16384_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 16384, batch_size: 10000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[256, 256, 512, 1024]]
+
+      # rummy_32768_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 32768, batch_size: 10000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[64, 64, 128, 256, 512, 1024, 2048]]
+
+      # rummy_65536_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 65536, batch_size: 10000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[64, 64, 128, 256, 512, 1024, 2048]]
+
+      # rummy_131072_no_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 131072, batch_size: 10000, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[64, 64, 128, 256, 512, 1024, 2048]]
+
+      # rummy_131072_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 131072, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   # query_args: [[16, 16, 32, 64, 128, 256, 512]]
+      #   query_args: [[8, 16]]
+
+      # rummy_131072_small_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 131072, batch_size: 8, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   # arg_groups: [{kmeans_iters: 20, n_lists: 131072, batch_size: 8, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   # query_args: [[16, 16, 32, 64, 128, 256, 512]]
+      #   query_args: [[16, 16]]
+      #   # query_args: [[8, 16]]
+
+      # rummy_262144_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 262144, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[16, 16, 32, 64, 128, 256, 512]]
+        # query_args: [[16, 256, 512]]
+        # query_args: [[512, 1024, 2048]]
+
+      # rummy_524288_large_batch:
+      #   arg_groups: [{kmeans_iters: 20, n_lists: 1000000, batch_size: 256, fp16_coarse: true, fp16_fine: false, cache_cluster: true}]
+      #   args: {}
+      #   query_args: [[10, 10]]
+      #   query_args: [[16, 16, 32, 64, 128, 256, 512, 1024]]
+      #   # query_args: [[16, 256, 512]]
+      #   # query_args: [[512, 1024, 2048]]
 
       # fp16_100:
       #   # arg_groups: [{kmeans_iters: 20, n_lists: 1000, batch_size: 10}]

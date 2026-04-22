@@ -161,15 +161,38 @@ def load_and_transform_dataset(dataset_name: str) -> Tuple[
         Tuple: Transformed datasets.
     """
     D, dimension = get_dataset(dataset_name)
-    X_train = numpy.array(D["train"])
-    X_test = numpy.array(D["test"])
     distance = D.attrs["distance"]
+    
+    # 直接读取为 C-contiguous float32，避免后续复制
+    # 使用 read_direct 或 astype 确保类型和内存布局正确
+    h5_train = D["train"]
+    h5_test = D["test"]
+    
+    # 创建目标数组，指定 order='C' 确保 C-contiguous
+    X_train = numpy.empty(h5_train.shape, dtype=numpy.float32, order='C')
+    X_test = numpy.empty(h5_test.shape, dtype=numpy.float32, order='C')
+    
+    # 直接读到目标数组，避免中间临时数组
+    h5_train.read_direct(X_train)
+    h5_test.read_direct(X_test)
+    
+    # 关闭 HDF5 文件，释放资源
+    D.close()
+    
+    # 验证数据布局
+    if not X_train.flags['C_CONTIGUOUS']:
+        raise RuntimeError("Error! [数据加载] 训练集不是C-contiguous布局")
+    if not X_test.flags['C_CONTIGUOUS']:
+        raise RuntimeError("Error! [数据加载] 测试集不是C-contiguous布局")
+    if X_train.dtype != numpy.float32:
+        raise RuntimeError(f"Error! [数据加载] 训练集数据类型错误: {X_train.dtype}, 期望float32")
+    if X_test.dtype != numpy.float32:
+        raise RuntimeError(f"Error! [数据加载] 测试集数据类型错误: {X_test.dtype}, 期望float32")
 
-    print(f"Got a train set of size ({X_train.shape[0]} * {dimension})")
-    print(f"Got {len(X_test)} queries")
+    print(f"Got a train set of size ({X_train.shape[0]} * {dimension}), C-contiguous: {X_train.flags['C_CONTIGUOUS']}")
+    print(f"Got {len(X_test)} queries, C-contiguous: {X_test.flags['C_CONTIGUOUS']}")
 
-    train, test = dataset_transform(D)
-    return train, test, distance
+    return X_train, X_test, distance
 
 
 def build_index(algo: BaseANN, X_train: numpy.ndarray) -> Tuple:
